@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>External List Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=Barlow:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+  <!--
+  ============================================================
+  APP CONFIGURATION - DEPRECATED
+  Configuration is now template-based. Users must select a
+  template or provide custom configuration on startup.
+  To use a custom config, set it via applyUserConfig() after
+  loading the page, or save a custom template.
+  ============================================================
+  -->
+  <script>
+
+    window.APP_CONFIG = null;
+  </script>
+
+  <script>
+
+    window.CONFIDENCE_LEVELS = {};
+  </script>
+
+  <header class="header">
+    <div class="logo">
+      <span class="logo-title">External List Editor</span>
+    </div>
+    <div class="header-actions">
+      <button id="custom-values-btn" class="btn" title="Manage Custom Values">📊 Custom Values</button>
+      <button id="settings-btn" class="btn" title="Settings">⚙ Settings</button>
+      <button id="reset-btn" class="btn btn-danger hidden">↺ Reset</button>
+      <div class="export-dropdown-wrap">
+        <button id="export-main-btn" class="btn btn-success" title="Export options">⬇ Export ▾</button>
+        <div id="export-menu" class="export-menu hidden">
+          <button class="export-menu-item" id="export-json-copy">📋 Copy JSON</button>
+          <button class="export-menu-item" id="export-json-download">💾 Download JSON</button>
+          <button class="export-menu-item" id="export-csv-copy">📋 Copy CSV</button>
+          <button class="export-menu-item" id="export-csv-download">💾 Download CSV</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <div class="tab-bar">
+      <button class="tab active" data-tab="import">Import</button>
+      <button class="tab" data-tab="comparison">Comparison</button>
+      <button class="tab" data-tab="rankings">Rankings</button>
+    </div>
+
+    <div id="import-tab" class="tab-content active">
+      <div id="import-main-panel" class="import-panel" data-panel="main">
+        <div class="import-header">
+          <h2>Import Main List</h2>
+          <p>Drop a JSON file, a custom array, or type level names one per line.</p>
+        </div>
+        <div class="drop-zone" data-type="main" id="drop-zone-main">
+          <input type="file" class="file-input" accept=".json,.txt,.csv" data-type="main" id="file-input-main" />
+          <span class="dropzone-icon">📁</span>
+          <div class="dropzone-title">Drop file here or click to browse</div>
+          <div class="dropzone-sub">.json .txt .csv</div>
+        </div>
+        <div class="import-divider">or</div>
+        <button class="btn btn-primary paste-trigger" data-type="main" id="paste-btn-main">⌨ Paste</button>
+        <div class="paste-area hidden" data-type="main" id="paste-area-main">
+          <textarea class="paste-textarea" placeholder="Paste your data here..." data-type="main"
+            id="paste-textarea-main"></textarea>
+          <div class="paste-actions">
+            <button class="btn btn-primary paste-submit" data-type="main" id="submit-paste-main">Load</button>
+            <button class="btn paste-cancel" data-type="main" id="cancel-paste-main">Cancel</button>
+          </div>
+        </div>
+        <div class="preset-import">
+          <label for="import-preset-select">Load preset source</label>
+          <div class="preset-import-row">
+            <select id="import-preset-select" class="field-input">
+              <option value="">Select a preset</option>
+            </select>
+            <button id="import-preset-btn" class="btn btn-primary">Load Preset</button>
+          </div>
+          <div class="preset-import-row preset-url-row">
+            <input type="text" id="import-url-input" class="field-input" placeholder="or paste any JSON URL…"
+              autocomplete="off" />
+            <button id="import-url-btn" class="btn btn-primary">Load URL</button>
+          </div>
+        </div>
+        <div class="import-error" data-type="main"></div>
+      </div>
+
+      <div id="import-pending-panel" class="import-panel hidden" data-panel="pending">
+        <div class="import-header">
+          <h2>Import Pending List</h2>
+          <p>Drop a JSON file, a custom array, or type level names one per line.</p>
+        </div>
+        <div class="drop-zone" data-type="pending" id="drop-zone-pending">
+          <input type="file" class="file-input" accept=".json,.txt,.csv" data-type="pending" id="file-input-pending" />
+          <span class="dropzone-icon">📁</span>
+          <div class="dropzone-title">Drop file here or click to browse</div>
+          <div class="dropzone-sub">.json .txt .csv</div>
+        </div>
+        <div class="import-divider">or</div>
+        <button class="btn btn-primary paste-trigger" data-type="pending" id="paste-btn-pending">⌨ Paste</button>
+        <div class="paste-area hidden" data-type="pending" id="paste-area-pending">
+          <textarea class="paste-textarea" placeholder="Paste your data here..." data-type="pending"
+            id="paste-textarea-pending"></textarea>
+          <div class="paste-actions">
+            <button class="btn btn-primary paste-submit" data-type="pending" id="submit-paste-pending">Load</button>
+            <button class="btn paste-cancel" data-type="pending" id="cancel-paste-pending">Cancel</button>
+          </div>
+        </div>
+        <div class="import-error" data-type="pending"></div>
+        <div class="import-panel-actions">
+          <button id="back-from-pending-btn" class="btn">← Back</button>
+        </div>
+      </div>
+
+      <div id="replace-main-panel" class="import-panel hidden" data-panel="replace">
+        <div class="import-header">
+          <h2>Replace Main List</h2>
+          <p>Upload a new main list (this will clear your existing main list).</p>
+        </div>
+        <div class="drop-zone" data-type="replace" id="drop-zone-replace">
+          <input type="file" class="file-input" accept=".json,.txt,.csv" data-type="replace" id="file-input-replace" />
+          <span class="dropzone-icon">📁</span>
+          <div class="dropzone-title">Drop file here or click to browse</div>
+          <div class="dropzone-sub">.json .txt .csv</div>
+        </div>
+        <div class="import-divider">or</div>
+        <button class="btn btn-primary paste-trigger" data-type="replace" id="paste-btn-replace">⌨ Paste</button>
+        <div class="paste-area hidden" data-type="replace" id="paste-area-replace">
+          <textarea class="paste-textarea" placeholder="Paste your data here..." data-type="replace"
+            id="paste-textarea-replace"></textarea>
+          <div class="paste-actions">
+            <button class="btn btn-primary paste-submit" data-type="replace" id="submit-paste-replace">Load</button>
+            <button class="btn paste-cancel" data-type="replace" id="cancel-paste-replace">Cancel</button>
+          </div>
+        </div>
+        <div class="import-error" data-type="replace"></div>
+        <div class="import-panel-actions">
+          <button id="back-from-replace-btn" class="btn">← Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="comparison-tab" class="tab-content">
+      <section id="session-panel" class="hidden">
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-value" id="comp-count">0</span>
+            <span class="stat-label">Comparisons</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="skip-count">0</span>
+            <span class="stat-label">Placed</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="active-count">0</span>
+            <span class="stat-label">Ranked</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="queue-count">0</span>
+            <span class="stat-label">In Queue</span>
+          </div>
+        </div>
+
+        <div class="session-top-actions">
+          <button id="replace-main-btn" class="btn btn-warning">🔄 Replace Main List</button>
+          <button id="import-pending-btn" class="btn btn-primary">⬆ Import Pending List</button>
+        </div>
+
+        <div class="keyboard-hint">
+          <kbd>←</kbd> Vote Left &nbsp; <kbd>→</kbd> Vote Right &nbsp; <kbd>Esc</kbd> Cancel &nbsp; <kbd>Ctrl Z</kbd>
+          Undo
+        </div>
+
+        <div id="insertion-progress"></div>
+
+        <div class="arena-controls">
+          <button id="undo-btn" class="btn" disabled>↩ Undo</button>
+          <button id="skip-btn" class="btn">✕ Cancel Placement</button>
+          <div class="arena-controls-divider"></div>
+          <button id="add-level-btn" class="btn btn-primary">＋ Add Level</button>
+        </div>
+
+        <div id="arena">
+          <div class="level-card">
+            <div class="level-thumb" id="left-thumb"></div>
+            <div class="level-info">
+              <div class="level-name-text" id="left-name"></div>
+              <div class="level-creator-text" id="left-creator"></div>
+              <a class="level-link" id="left-link" href="#" target="_blank" rel="noopener">Watch showcase</a>
+            </div>
+            <button class="vote-btn" id="btn-left"></button>
+          </div>
+
+          <div class="arena-vs">VS</div>
+
+          <div class="level-card">
+            <div class="level-thumb" id="right-thumb"></div>
+            <div class="level-info">
+              <div class="level-name-text" id="right-name"></div>
+              <div class="level-creator-text" id="right-creator"></div>
+              <a class="level-link" id="right-link" href="#" target="_blank" rel="noopener">Watch showcase</a>
+            </div>
+            <button class="vote-btn" id="btn-right"></button>
+          </div>
+        </div>
+
+        <div id="pending-selector" class="pending-selector"></div>
+      </section>
+    </div>
+
+    <div id="rankings-tab" class="tab-content">
+      <section class="rankings-section">
+        <div class="rankings-header">
+          <div>
+            <h3>Rankings</h3>
+            <span id="rank-info" class="rank-info"></span>
+          </div>
+          <div class="rankings-header-actions">
+            <input type="text" id="filter-input" class="filter-input" />
+            <select id="remove-column-select" class="field-input" style="margin-right: 10px;">
+              <option value="">Remove Column...</option>
+            </select>
+            <button id="reeval-range-btn" class="btn">Re-evaluate Range</button>
+          </div>
+        </div>
+
+        <div id="rankings-summary" class="rankings-summary"></div>
+
+        <div id="reeval-panel" class="hidden">
+          <div class="reeval-controls">
+            <input type="number" id="reeval-from" placeholder="From position" min="1">
+            <input type="number" id="reeval-to" placeholder="To position" min="1">
+            <span id="reeval-info"></span>
+            <button id="reeval-confirm" class="btn btn-primary">Confirm</button>
+            <button id="reeval-cancel" class="btn">Cancel</button>
+          </div>
+        </div>
+
+        <div id="bulk-toolbar" class="bulk-toolbar hidden">
+          <span id="bulk-count" class="bulk-count">0 selected</span>
+          <button id="bulk-reeval-btn" class="btn btn-warning">↺ Re-rank Selected</button>
+          <button id="bulk-delete-btn" class="btn btn-danger">✕ Delete Selected</button>
+          <button id="bulk-clear-btn" class="btn">✕ Clear Selection</button>
+        </div>
+
+        <div id="contradiction-panel"></div>
+
+        <div id="rankings-table-wrapper">
+          <table class="rankings-table">
+            <thead>
+              <tr>
+                <th class="cb-cell"><input type="checkbox" id="select-all-rows" title="Select all"></th>
+                <th></th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="rankings-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+  </main>
+
+  <div id="level-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Edit Level</h3>
+        <button class="modal-close" id="modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group">
+          <label class="field-label" for="modal-name">Level Name *</label>
+          <input type="text" id="modal-name" class="field-input" autocomplete="off">
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="modal-creators">Creator(s)</label>
+          <input type="text" id="modal-creators" class="field-input" autocomplete="off">
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="modal-video">Showcase Video URL</label>
+          <input type="text" id="modal-video" class="field-input" autocomplete="off">
+          <div id="modal-thumb-preview" class="thumb-preview"></div>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="modal-listid">Original List ID</label>
+          <input type="number" id="modal-listid" class="field-input" min="1">
+        </div>
+        <div class="field-group">
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="modal-victors">Victors (JSON)</label>
+          <textarea id="modal-victors" class="field-input field-textarea"></textarea>
+        </div>
+        <div class="field-group" id="modal-status-group">
+          <label class="field-label">Add to</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="modal-status" value="pending" checked> Pending Queue
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="modal-status" value="ranked"> Ranked List (bottom)
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="modal-save">Save</button>
+        <button class="btn" id="modal-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Settings</h3>
+        <button class="modal-close" id="settings-modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h4>Confirmation Dialogs</h4>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="confirm-delete" checked>
+              <span>Confirm before deleting levels</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="confirm-reset" checked>
+              <span>Confirm before resetting session</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="confirm-import-overwrite" checked>
+              <span>Confirm before overwriting existing data on import</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Drag & Drop</h4>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="enable-drag-drop" checked>
+              <span>Enable drag and drop for reordering rankings</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Inline Editing</h4>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="radio" name="inline-edit-mode" value="single" checked>
+              <span>Single-click to edit</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="radio" name="inline-edit-mode" value="double">
+              <span>Double-click to edit</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Default New Item Status</h4>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="radio" name="default-new-status" value="pending" checked>
+              <span>Add to pending queue</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="radio" name="default-new-status" value="unranked">
+              <span>Add directly to unranked list</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="radio" name="default-new-status" value="immediate">
+              <span>Start ranking immediately</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="settings-save">Save Settings</button>
+        <button class="btn" id="settings-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="custom-values-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Custom Fields</h3>
+        <button class="modal-close" id="custom-values-modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="custom-values-section">
+          <div class="add-custom-value">
+            <input type="text" id="new-custom-value-name" class="field-input"
+              placeholder="Field name (e.g. length, difficulty)">
+            <select id="new-custom-value-type" class="field-input">
+              <option value="text">Text</option>
+              <option value="number">Number</option>
+              <option value="enum">Enum</option>
+              <option value="boolean">Boolean</option>
+            </select>
+            <input type="text" id="new-custom-value-options" class="field-input"
+              placeholder="Enum options (comma-separated)" style="display:none;">
+            <label class="checkbox-label">
+              <input type="checkbox" id="new-custom-value-filterable" checked>
+              Filterable
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="new-custom-value-sortable" checked>
+              Sortable
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="new-custom-value-exportable" checked>
+              Exportable
+            </label>
+            <button id="add-custom-value-btn" class="btn btn-primary">Add Field</button>
+          </div>
+          <div id="custom-values-list" class="custom-values-list">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="custom-values-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Configuration Template Selection Modal -->
+  <div id="config-template-modal" class="modal-overlay">
+    <div class="modal" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3>Choose Configuration Template</h3>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 1.5rem; color: #666;">Select a built-in template or create your own configuration:</p>
+
+        <div id="template-options" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
+          <!-- Templates will be inserted here by JavaScript -->
+        </div>
+
+        <div style="border-top: 1px solid #ddd; padding-top: 1rem; margin-top: 1rem;">
+          <details>
+            <summary style="cursor: pointer; font-weight: 600; margin-bottom: 0.75rem;">Custom Configuration (Advanced)
+            </summary>
+            <textarea id="config-json-input" class="field-input field-textarea"
+              placeholder='{"appTitle": "External List Editor", ...}'
+              style="font-family: monospace; font-size: 0.85rem; min-height: 150px;"></textarea>
+            <button id="config-apply-json-btn" class="btn btn-success" style="margin-top: 0.5rem; width: 100%;">Apply
+              Custom Config</button>
+          </details>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+        <button id="config-skip-btn" class="btn" title="Skip configuration for now">Skip</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script type="module" src="state.js"></script>
+  <script type="module" src="logic.js"></script>
+  <script type="module" src="render.js"></script>
+  <script type="module" src="init.js"></script>
+</body>
+
+</html>
