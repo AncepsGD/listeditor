@@ -335,6 +335,7 @@ export function saveSession() {
       customValues: state.customValues,
       detectedColumns: state.detectedColumns,
       detectedColumnsOrder: state.detectedColumnsOrder,
+      hiddenColumns: state.hiddenColumns,
       compCount: state.compCount,
       insertionSession: state.insertionSession ? {
         levelId: state.insertionSession.level._id,
@@ -371,6 +372,7 @@ export function loadSession() {
     }));
     state.detectedColumns = Array.isArray(data.detectedColumns) ? data.detectedColumns.slice() : [];
     state.detectedColumnsOrder = data.detectedColumnsOrder ?? {};
+    state.hiddenColumns = Array.isArray(data.hiddenColumns) ? data.hiddenColumns.slice() : [];
 
     state.placementHistory = (data.placementHistory ?? [])
       .map(p => {
@@ -438,22 +440,6 @@ function sortLevelsForRankings(levels) {
       if (bRank !== null) {
         return 1;
       }
-
-      const aId = Number.isFinite(a.level.id) ? a.level.id : null;
-      const bId = Number.isFinite(b.level.id) ? b.level.id : null;
-
-      if (aId !== null && bId !== null) {
-        return aId - bId;
-      }
-
-      if (aId !== null) {
-        return -1;
-      }
-
-      if (bId !== null) {
-        return 1;
-      }
-
       return a.originalIndex - b.originalIndex;
     })
     .map(({ level }) => level);
@@ -468,7 +454,10 @@ export function getCurrentImportPanel() {
 }
 
 export function processLevels(levelsArray, importTarget = 'main', shouldAppend = false, forceMode = null) {
-  let valid = levelsArray.filter(l => typeof l?.name === 'string' && l.name.trim());
+  let valid = levelsArray
+    .map(level => normalizeLevelObject(level))
+    .filter(l => typeof l?.name === 'string' && l.name.trim());
+
   if (valid.length < 1) {
     showImportError(`Need at least 1 named level. Found ${valid.length}.`, getCurrentImportPanel());
     return;
@@ -642,15 +631,12 @@ export function getRankingsExport() {
   return state.rankedList.map((level, idx) => {
     const exportObj = { rank: idx + 1 };
     state.detectedColumns.forEach(col => {
-
       if (col === 'confidence' || col === 'lastEdited') return;
       const value = level[col];
       if (col === 'tags' && Array.isArray(value)) {
         exportObj[col] = value.join(', ');
-      } else if (value != null) {
+      } else if (value !== null && value !== undefined && value !== '') {
         exportObj[col] = value;
-      } else {
-        exportObj[col] = null;
       }
     });
     state.customValues.forEach(value => {

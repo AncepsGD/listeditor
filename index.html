@@ -454,42 +454,18 @@
     </div>
   </div>
 
-  <!-- Configuration Template Selection Modal -->
-  <div id="config-template-modal" class="modal-overlay">
-    <div class="modal" style="max-width: 500px;">
-      <div class="modal-header">
-        <h3>Choose Configuration Template</h3>
-      </div>
-      <div class="modal-body">
-        <p style="margin-bottom: 1.5rem; color: #666;">Select a built-in template or create your own configuration:</p>
-
-        <div id="template-options" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
-          <!-- Templates will be inserted here by JavaScript -->
-        </div>
-
-        <div style="border-top: 1px solid #ddd; padding-top: 1rem; margin-top: 1rem;">
-          <details>
-            <summary style="cursor: pointer; font-weight: 600; margin-bottom: 0.75rem;">Custom Configuration (Advanced)
-            </summary>
-            <textarea id="config-json-input" class="field-input field-textarea"
-              placeholder='{"appTitle": "External List Editor", ...}'
-              style="font-family: monospace; font-size: 0.85rem; min-height: 150px;"></textarea>
-            <button id="config-apply-json-btn" class="btn btn-success" style="margin-top: 0.5rem; width: 100%;">Apply
-              Custom Config</button>
-          </details>
-        </div>
-      </div>
-      <div class="modal-footer" style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
-        <button id="config-skip-btn" class="btn" title="Skip configuration for now">Skip</button>
-      </div>
-    </div>
-  </div>
+  <!-- Configuration Template Selection Modal - Hidden: Using minimal setup by default -->
 
   <div id="toast"></div>
 
   <script type="module" src="state.js"></script>
   <script type="module" src="logic.js"></script>
-  <script type="module" src="render.js"></script>
+  <script type="module" src="render.utils.js"></script>
+  <script type="module" src="render.rows.js"></script>
+  <script type="module" src="render.split.js"></script>
+  <script type="module" src="render.modals.js"></script>
+  <script type="module" src="render.table.js"></script>
+  <script type="module" src="render.main.js"></script>
   <script type="module" src="init.js"></script>
 </body>
 

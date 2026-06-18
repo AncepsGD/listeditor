@@ -509,7 +509,7 @@ kbd {
 }
 
 .level-thumb {
-    height: 140px;
+    height: 90px;
     background: var(--bg3) center / cover no-repeat;
     position: relative;
     overflow: hidden;
@@ -732,17 +732,22 @@ kbd {
 
 #rankings-table-wrapper {
     max-height: min(600px, 70vh);
-    overflow-y: auto;
+    overflow: auto;
     border: 1px solid var(--border);
     border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 .rankings-table {
-    width: auto;
+    width: max-content;
     min-width: 100%;
     table-layout: auto;
     border-collapse: collapse;
     font-size: 0.85rem;
+}
+
+.rankings-table td,
+.rankings-table th {
+    max-width: 270px;
 }
 
 .rankings-table thead {
@@ -752,10 +757,36 @@ kbd {
     background: var(--bg3);
 }
 
-.rankings-table th {
+.rankings-table col.col-cb {
+    width: 48px;
+}
+
+.rankings-table col.col-rank {
+    width: 72px;
+}
+
+.rankings-table col.col-actions {
+    width: 64px;
+}
+
+.rankings-table col[data-column] {
+    width: fit-content(270px);
+}
+
+.rankings-table th,
+.rankings-table td {
     padding: var(--sp-md);
-    text-align: center;
     border-bottom: 1px solid var(--border);
+    height: auto;
+    min-height: 48px;
+    width: fit-content;
+    max-width: 270px;
+    vertical-align: middle;
+    transition: width 160ms ease, padding 160ms ease;
+}
+
+.rankings-table th {
+    white-space: nowrap;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -764,9 +795,9 @@ kbd {
 }
 
 .rankings-table td {
-    padding: var(--sp-md);
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     text-align: center;
 }
 
@@ -780,13 +811,8 @@ kbd {
     color: var(--text);
 }
 
-.rankings-table td {
-    padding: var(--sp-md);
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-}
-
 .rankings-table tbody tr {
+    min-height: 48px;
     transition: background-color var(--transition-fast);
 }
 
@@ -953,6 +979,72 @@ tbody#rankings-body:empty::before {
     height: 100%;
     object-fit: cover;
     display: block;
+}
+
+.cell-image-wrapper {
+    padding: 3px;
+    min-height: 40px;
+    max-height: 80px;
+    min-width: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: var(--bg-alt);
+    border-radius: var(--radius-sm);
+    transition: background-color 0.2s;
+    overflow: hidden;
+    white-space: normal;
+}
+
+.cell-image-wrapper:hover {
+    background: var(--bg);
+}
+
+.cell-image-wrapper.editing {
+    padding: 0;
+}
+
+.cell-image-wrapper.cell-image-failed {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted);
+    font-size: 0.82rem;
+    text-align: center;
+    padding: 8px;
+}
+
+.cell-image-failed-text {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cell-image {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+}
+
+.cell-image-input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    font-size: 0.95rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+}
+
+.cell-image-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.2);
 }
 
 .rank-text-block {
@@ -1135,7 +1227,7 @@ tbody#rankings-body:empty::before {
 }
 
 .pending-thumb {
-    min-height: 150px;
+    min-height: 100px;
     background: var(--bg3);
     position: relative;
     overflow: hidden;

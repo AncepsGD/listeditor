@@ -26,7 +26,7 @@ export const CONFIG_TEMPLATES = {
         confirmDelete: true,
         confirmReset: true,
         confirmImportOverwrite: true,
-        enableDragDrop: false,
+        enableDragDrop: true,
         inlineEditMode: 'single',
         defaultNewStatus: 'pending',
       },
@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG = {
     confirmDelete: true,
     confirmReset: true,
     confirmImportOverwrite: true,
-    enableDragDrop: false,
+    enableDragDrop: true,
     inlineEditMode: 'single',
     defaultNewStatus: 'pending',
   },
@@ -129,10 +129,28 @@ export const state = {
   dragSrcIdx: null,
   detectedColumns: [],
   detectedColumnsOrder: {},
+  hiddenColumns: [],
   selectedLevels: new Set(),
   dynamicFields: [],
   settings: { ...DEFAULT_CONFIG.defaultSettings },
 };
+
+export function setFieldLabel(fieldId, label) {
+  if (!state.settings.columnLabels) state.settings.columnLabels = {};
+  if (!fieldId) return;
+  const trimmed = String(label ?? '').trim();
+  if (!trimmed) {
+    delete state.settings.columnLabels[fieldId];
+  } else {
+    state.settings.columnLabels[fieldId] = trimmed;
+  }
+}
+
+export function removeFieldLabel(fieldId) {
+  if (state.settings.columnLabels) {
+    delete state.settings.columnLabels[fieldId];
+  }
+}
 
 export function applyUserConfig(userConfig) {
   if (!userConfig || typeof userConfig !== 'object') return;
@@ -275,6 +293,9 @@ export function getFieldDefinition(fieldId) {
 }
 
 export function getFieldLabel(fieldId) {
+  if (state.settings.columnLabels && fieldId && state.settings.columnLabels[fieldId]) {
+    return state.settings.columnLabels[fieldId];
+  }
   const def = getFieldDefinition(fieldId);
   if (def) return def.label;
   return String(fieldId || '').replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
@@ -329,10 +350,28 @@ export function reorderColumn(columnName, newPosition) {
 
 export function removeCustomColumn(customId) {
   removeDetectedColumn(`custom_${customId}`);
+  state.hiddenColumns = state.hiddenColumns.filter(col => col !== `custom_${customId}`);
 }
 
 export function hasColumn(columnName) {
-  return state.detectedColumns.includes(columnName);
+  return state.detectedColumns.includes(columnName) && !state.hiddenColumns.includes(columnName);
+}
+
+export function hideColumn(columnName) {
+  if (!state.detectedColumns.includes(columnName) || state.hiddenColumns.includes(columnName)) return;
+  state.hiddenColumns.push(columnName);
+  _invalidateColumnsCache();
+}
+
+export function showColumn(columnName) {
+  const idx = state.hiddenColumns.indexOf(columnName);
+  if (idx === -1) return;
+  state.hiddenColumns.splice(idx, 1);
+  _invalidateColumnsCache();
+}
+
+export function isColumnHidden(columnName) {
+  return state.hiddenColumns.includes(columnName);
 }
 
 export function getCustomFieldColumnId(customId) {
@@ -350,6 +389,11 @@ export function getVisibleColumns() {
 
 export function getAllFieldDefinitions() {
   return [...BUILTIN_FIELD_DEFINITIONS, ...state.dynamicFields];
+}
+
+export function getAllColumns(includeHidden = false) {
+  if (includeHidden) return state.detectedColumns.slice();
+  return getOrderedColumns();
 }
 
 export function getAllColumnDefinitions() {
@@ -382,13 +426,15 @@ export function escHtml(str) {
 export function ytId(url) {
   if (!url || typeof url !== 'string') return null;
   const m = url.match(
-    /(?:youtu\.be\/|youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/))([A-Za-z0-9_-]{11})/
+    /(?:youtu\.be\/|youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/|live\/))([A-Za-z0-9_-]{11})/
   );
   return m ? m[1] : null;
 }
 
 export function thumbUrl(url) {
-  const id = ytId(url);
+  if (!url || typeof url !== 'string') return null;
+  const value = url.trim();
+  const id = ytId(value) || (/^[A-Za-z0-9_-]{11}$/.test(value) ? value : null);
   return id ? `https://i.ytimg.com/vi/${id}/mqdefault.jpg` : null;
 }
 
@@ -399,8 +445,11 @@ export function gdThumbUrl(gdId) {
 
 export function normalizeLevelObject(obj) {
   if (!obj || typeof obj !== 'object') {
-    return { name: String(obj || '').trim(), pending: true, customValues: {} };
+    return { name: String(obj || '').trim(), pending: true };
   }
+
+  const rawName = [obj.name, obj.level, obj.title].find(value => value != null && String(value).trim() !== '');
+  const name = rawName ? String(rawName).trim() : '';
   const rawId = obj.id ?? obj.levelID ?? null;
   const rawRank = obj.rank ?? null;
   const parsedRank = rawRank != null
@@ -411,29 +460,49 @@ export function normalizeLevelObject(obj) {
     ? (Number.isFinite(Number(rawGdId)) ? Number(rawGdId) : parseInt(String(rawGdId).replace(/[^0-9]/g, ''), 10) || null)
     : null;
 
-  const result = { ...obj };
+  const result = { ...obj, name };
 
-  result.name = String(obj.name || obj.level || obj.title || '').trim();
-  result.creators = obj.creators || obj.creator || obj.author || null;
-  result.showcaseVideo = obj.showcaseVideo || obj.video || null;
-  result.id = rawId;
-  result.rank = parsedRank;
-  result.tags = obj.tags || null;
+  if (obj.creators || obj.creator || obj.author) {
+    result.creators = obj.creators || obj.creator || obj.author;
+  }
+
+  if (obj.showcaseVideo || obj.video) {
+    result.showcaseVideo = obj.showcaseVideo || obj.video;
+  }
+
+  if (rawId != null && String(rawId).trim()) {
+    result.id = rawId;
+  }
+
+  if (parsedRank !== null) {
+    result.rank = parsedRank;
+  }
+
+  if (Array.isArray(obj.tags) ? obj.tags.length > 0 : obj.tags != null && String(obj.tags).trim()) {
+    result.tags = obj.tags;
+  }
+
   result.pending = obj.pending ?? (rawId == null && parsedRank == null);
-  result.confidence = obj.confidence ?? null;
-  result.lastEdited = obj.lastEdited ?? null;
-  result.thumbnail = obj.thumbnail || obj.image || obj.img || null;
-  result.customValues = obj.customValues && typeof obj.customValues === 'object'
-    ? { ...obj.customValues }
-    : {};
-  result._id = obj._id ?? null;
 
-  delete result.gdId;
-  delete result.notes;
-  delete result.lowConfidence;
-  delete result.improvement;
-  delete result.levelID;
-  delete result.levelId;
+  if (obj.confidence != null && obj.confidence !== '') {
+    result.confidence = obj.confidence;
+  }
+
+  if (obj.lastEdited != null && obj.lastEdited !== '') {
+    result.lastEdited = obj.lastEdited;
+  }
+
+  if (obj.thumbnail || obj.image || obj.img) {
+    result.thumbnail = obj.thumbnail || obj.image || obj.img;
+  }
+
+  if (obj.customValues && typeof obj.customValues === 'object' && Object.keys(obj.customValues).length > 0) {
+    result.customValues = { ...obj.customValues };
+  }
+
+  if (obj._id != null && String(obj._id).trim()) {
+    result._id = obj._id;
+  }
 
   return result;
 }
@@ -455,7 +524,7 @@ export function parsePlainText(data) {
   return data.trim().split('\n')
     .map(line => line.trim())
     .filter(Boolean)
-    .map(name => ({ name, pending: true, customValues: {} }));
+    .map(name => ({ name, pending: true }));
 }
 
 export function parseCSV(data) {
@@ -475,25 +544,29 @@ export function parseCSV(data) {
 
     return lines.slice(1).map(line => {
       const parts = line.split(',');
-      return {
-        name: (parts[nameIdx] || '').trim(),
-        creators: creatorsIdx !== -1 ? (parts[creatorsIdx] || '').trim() || null : null,
-        tags: tagsIdx !== -1 ? (parts[tagsIdx] || '').trim() || null : null,
-        notes: notesIdx !== -1 ? (parts[notesIdx] || '').trim() || null : null,
-        pending: true,
-        customValues: {},
-      };
+      const level = { name: (parts[nameIdx] || '').trim(), pending: true };
+      if (creatorsIdx !== -1) {
+        const creators = (parts[creatorsIdx] || '').trim();
+        if (creators) level.creators = creators;
+      }
+      if (tagsIdx !== -1) {
+        const tags = (parts[tagsIdx] || '').trim();
+        if (tags) level.tags = tags;
+      }
+      if (notesIdx !== -1) {
+        const notes = (parts[notesIdx] || '').trim();
+        if (notes) level.notes = notes;
+      }
+      return level;
     }).filter(l => l.name);
   }
 
   return lines.map(line => {
     const parts = line.split(',');
-    return {
-      name: (parts[0] || '').trim(),
-      creators: (parts[1] || '').trim() || null,
-      pending: true,
-      customValues: {},
-    };
+    const level = { name: (parts[0] || '').trim(), pending: true };
+    const creators = (parts[1] || '').trim();
+    if (creators) level.creators = creators;
+    return level;
   }).filter(l => l.name);
 }
 
@@ -675,11 +748,14 @@ export function getOrderedColumns() {
   if (_orderedColumnsCacheVersion === _detectedColumnsVersion && _orderedColumnsCache !== null) {
     return _orderedColumnsCache;
   }
-  _orderedColumnsCache = state.detectedColumns.slice().sort((a, b) => {
-    const orderA = state.detectedColumnsOrder[a] ?? 999;
-    const orderB = state.detectedColumnsOrder[b] ?? 999;
-    return orderA - orderB;
-  });
+  _orderedColumnsCache = state.detectedColumns
+    .filter(col => !state.hiddenColumns.includes(col))
+    .slice()
+    .sort((a, b) => {
+      const orderA = state.detectedColumnsOrder[a] ?? 999;
+      const orderB = state.detectedColumnsOrder[b] ?? 999;
+      return orderA - orderB;
+    });
   _orderedColumnsCacheVersion = _detectedColumnsVersion;
   return _orderedColumnsCache;
 }

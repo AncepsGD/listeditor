@@ -6,14 +6,15 @@ import {
   showImportError, hideImportError, getMid,
   checkContradictions, clearSession, saveSession,
 } from './logic.js';
+import { renderAll } from './render.main.js';
 import {
-  renderAll, openEditModal, openAddModal, closeModal, submitModal, updateModalThumb,
+  openEditModal, openAddModal, closeModal, submitModal, updateModalThumb,
   openSettingsModal, closeSettingsModal, saveSettingsModal,
   openCustomValuesModal, closeCustomValuesModal, addCustomValueFromModal,
-} from './render.js';
+} from './render.modals.js';
 import {
   state, config, applyUserConfig,
-  loadSettings, saveSettings, removeDetectedColumn,
+  loadSettings, saveSettings, hideColumn,
   CONFIG_TEMPLATES, listAvailableTemplates, applyConfigTemplate,
   listConfigTemplates, saveConfigTemplate, getSelectedTemplate,
 } from './state.js';
@@ -144,88 +145,19 @@ function applyConfigToDOM() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const isConfigured = config.appTitle || config.confidenceLevels.length > 0;
-
-  if (!isConfigured) {
-    initializeTemplateSelection();
-  } else {
-    loadSettings();
-    applyConfigToDOM();
-    initializeUI();
+  if (!config.appTitle) {
+    applyConfigTemplate('minimal');
   }
+  loadSettings();
+  applyConfigToDOM();
+  initializeUI();
 });
 
 function initializeTemplateSelection() {
-  const modal = document.getElementById('config-template-modal');
-  const templateOptions = document.getElementById('template-options');
-  const configJsonInput = document.getElementById('config-json-input');
-  const configApplyJsonBtn = document.getElementById('config-apply-json-btn');
-  const configSkipBtn = document.getElementById('config-skip-btn');
-
-  if (!modal || !templateOptions) return;
-
-  const templates = listAvailableTemplates();
-
-  Object.entries(templates.builtin).forEach(([key, template]) => {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-success';
-    btn.style.cssText = 'width: 100%; text-align: left; padding: 0.75rem;';
-    btn.innerHTML = `<strong>${template.name}</strong><br><small style="color: #666;">Built-in template</small>`;
-    btn.addEventListener('click', () => {
-      applyConfigTemplate(key);
-      loadSettings();
-      applyConfigToDOM();
-      modal.classList.remove('active');
-      initializeUI();
-    });
-    templateOptions.appendChild(btn);
-  });
-
-  if (Object.keys(templates.custom).length > 0) {
-    const customLabel = document.createElement('div');
-    customLabel.style.cssText = 'margin-top: 1rem; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.9rem; color: #666;';
-    customLabel.textContent = 'Custom Templates';
-    templateOptions.appendChild(customLabel);
-
-    Object.entries(templates.custom).forEach(([key, customTemplate]) => {
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.style.cssText = 'width: 100%; text-align: left; padding: 0.75rem;';
-      btn.innerHTML = `<strong>${key}</strong><br><small style="color: #666;">Custom</small>`;
-      btn.addEventListener('click', () => {
-        applyConfigTemplate(key);
-        loadSettings();
-        applyConfigToDOM();
-        modal.classList.add('hidden');
-        initializeUI();
-      });
-      templateOptions.appendChild(btn);
-    });
-  }
-
-  if (configApplyJsonBtn) {
-    configApplyJsonBtn.addEventListener('click', () => {
-      try {
-        const customConfig = JSON.parse(configJsonInput.value);
-        applyUserConfig(customConfig);
-        loadSettings();
-        applyConfigToDOM();
-        modal.classList.remove('active');
-        initializeUI();
-      } catch (e) {
-        showToast(`Invalid JSON: ${e.message}`, 'danger');
-      }
-    });
-  }
-
-  if (configSkipBtn) {
-    configSkipBtn.addEventListener('click', () => {
-      modal.classList.remove('active');
-      initializeUI();
-    });
-  }
-
-  modal.classList.add('active');
+  applyConfigTemplate('minimal');
+  loadSettings();
+  applyConfigToDOM();
+  initializeUI();
 }
 
 function initializeUI() {
@@ -441,7 +373,7 @@ function initializeUI() {
     removeColumnSelect.addEventListener('change', (e) => {
       const columnName = e.target.value;
       if (columnName) {
-        removeDetectedColumn(columnName);
+        hideColumn(columnName);
         renderAll();
         saveSession();
         e.target.value = '';
