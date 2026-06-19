@@ -639,6 +639,9 @@ export function getRankingsExport() {
         exportObj[col] = value;
       }
     });
+    if (level.showcaseVideo != null && level.showcaseVideo !== '' && exportObj.showcaseVideo == null) {
+      exportObj.showcaseVideo = level.showcaseVideo;
+    }
     state.customValues.forEach(value => {
       if (!value.exportable) return;
       const customVal = level.customValues?.[value.id];
