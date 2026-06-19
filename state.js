@@ -466,8 +466,12 @@ export function normalizeLevelObject(obj) {
     result.creators = obj.creators || obj.creator || obj.author;
   }
 
-  if (obj.showcaseVideo || obj.video) {
-    result.showcaseVideo = obj.showcaseVideo || obj.video;
+  if (obj.showcaseVideo) {
+    result.showcaseVideo = obj.showcaseVideo;
+  }
+  
+  if (obj.video) {
+    result.video = obj.video;
   }
 
   if (rawId != null && String(rawId).trim()) {
