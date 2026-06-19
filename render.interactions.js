@@ -271,9 +271,6 @@ export function setupRankingsInteraction(tbody) {
             if (fieldId.startsWith('custom_')) {
               const customId = fieldId.replace('custom_', '');
               setCustomValue(level, customId, input.value);
-            } else if (fieldId === 'video') {
-              level.showcaseVideo = input.value || null;
-              level.video = input.value || null;
             } else {
               level[fieldId] = input.value || null;
             }
