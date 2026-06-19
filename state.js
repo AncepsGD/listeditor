@@ -267,7 +267,8 @@ export const BUILTIN_FIELD_DEFINITIONS = [
   { id: 'lastEdited', label: 'Last edited', type: 'datetime', sortable: true, filterable: false, groupable: false, conditional: false },
   { id: 'id', label: 'ID', type: 'text', sortable: true, filterable: false, groupable: false, conditional: false },
   { id: 'victors', label: 'Victors', type: 'text', sortable: false, filterable: false, groupable: false, conditional: false },
-  { id: 'showcaseVideo', label: 'Video URL', type: 'text', sortable: false, filterable: false, groupable: false, conditional: false },
+  { id: 'showcaseVideo', label: 'Showcase Video URL', type: 'text', sortable: false, filterable: false, groupable: false, conditional: false },
+  { id: 'video', label: 'Video URL', type: 'text', sortable: false, filterable: false, groupable: false, conditional: false },
 ];
 
 export const FIELD_ID_SET = new Set(BUILTIN_FIELD_DEFINITIONS.map(field => field.id));
@@ -692,9 +693,10 @@ export function detectColumnsFromLevels() {
   });
 
   const visibleFields = propertyOrder.filter(key => !FIELD_ID_SET.has(key));
+  const builtinVisibleFields = propertyOrder.filter(key => FIELD_ID_SET.has(key));
   const restored = state.detectedColumns.length > 0
-    ? [...new Set([...state.detectedColumns, ...defaultVisible, ...visibleFields])]
-    : [...new Set([...defaultVisible, ...visibleFields])];
+    ? [...new Set([...state.detectedColumns, ...defaultVisible, ...visibleFields, ...builtinVisibleFields])]
+    : [...new Set([...defaultVisible, ...visibleFields, ...builtinVisibleFields])];
 
   const builtinColumns = config.defaultVisibleColumns && Array.isArray(config.defaultVisibleColumns)
     ? config.defaultVisibleColumns.filter(col => FIELD_ID_SET.has(col))
@@ -714,6 +716,14 @@ export function detectColumnsFromLevels() {
     if (!state.detectedColumns.includes(customId)) {
       state.detectedColumns.push(customId);
       state.detectedColumnsOrder[customId] = state.detectedColumns.length - 1;
+    }
+  });
+
+  const builtinFieldsPresent = propertyOrder.filter(key => FIELD_ID_SET.has(key));
+  builtinFieldsPresent.forEach(key => {
+    if (!state.detectedColumns.includes(key)) {
+      state.detectedColumns.push(key);
+      state.detectedColumnsOrder[key] = state.detectedColumns.length - 1;
     }
   });
 
