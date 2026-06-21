@@ -561,6 +561,8 @@ export function loadJSON(data, forceMode = null) {
 
   let levelsArray;
   if (parsed && parsed.levels && Array.isArray(parsed.levels)) {
+
+    state.lastImportWasArray = false;
     levelsArray = parsed.levels.map(level => {
       const normalized = normalizeLevelObject(level);
       if (!normalized.showcaseVideo && Array.isArray(level.ids) && level.ids[0]?.id) {
@@ -569,12 +571,15 @@ export function loadJSON(data, forceMode = null) {
       return normalized;
     });
   } else if (Array.isArray(parsed)) {
+
+    state.lastImportWasArray = true;
     levelsArray = parsed.map(level =>
       typeof level === 'object' && level !== null
         ? normalizeLevelObject(level)
         : { name: String(level), pending: true, customValues: {} }
     );
   } else if (parsed && typeof parsed === 'object') {
+    state.lastImportWasArray = false;
     levelsArray = [normalizeLevelObject(parsed)];
   } else {
     showImportError(
@@ -628,6 +633,26 @@ export function reset() {
 }
 
 export function getRankingsExport() {
+
+  if (state.lastImportWasArray) {
+    return state.rankedList.map(level => {
+      const out = {};
+      Object.keys(level).forEach(k => {
+
+        if (['_id', 'pending', 'lowConfidence', 'confidence', 'lastEdited'].includes(k)) return;
+        if (k === 'customValues') return;
+        out[k] = level[k];
+      });
+
+      state.customValues.forEach(value => {
+        if (!value.exportable) return;
+        const customVal = level.customValues?.[value.id];
+        if (customVal != null && customVal !== '') out[value.name] = customVal;
+      });
+      return out;
+    });
+  }
+
   return state.rankedList.map((level, idx) => {
     const exportObj = { rank: idx + 1 };
     state.detectedColumns.forEach(col => {
