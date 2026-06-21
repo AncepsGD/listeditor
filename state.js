@@ -132,6 +132,7 @@ export const state = {
   hiddenColumns: [],
   selectedLevels: new Set(),
   dynamicFields: [],
+  lastImportWasArray: false,
   settings: { ...DEFAULT_CONFIG.defaultSettings },
 };
 
@@ -470,7 +471,7 @@ export function normalizeLevelObject(obj) {
   if (obj.showcaseVideo) {
     result.showcaseVideo = obj.showcaseVideo;
   }
-  
+
   if (obj.video) {
     result.video = obj.video;
   }
