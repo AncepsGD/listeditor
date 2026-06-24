@@ -15,8 +15,6 @@ const DATE_FORMATTER = new Intl.DateTimeFormat([], {
   minute: "2-digit",
 });
 
-const thumbCache = new WeakMap();
-
 function computeLevelThumbnailUrls(level) {
   const custom =
     level.thumbnail ||
@@ -37,12 +35,7 @@ export function getLevelThumbnailUrls(level) {
     return EMPTY_THUMB;
   }
 
-  const cached = thumbCache.get(level);
-  if (cached) return cached;
-
-  const result = computeLevelThumbnailUrls(level);
-  thumbCache.set(level, result);
-  return result;
+  return computeLevelThumbnailUrls(level);
 }
 
 export function handleThumbError() {
