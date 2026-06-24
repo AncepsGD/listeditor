@@ -1,5 +1,5 @@
-import { state, escHtml, getCustomField, setCustomValue, CONFIDENCE_LEVELS } from './state.js';
-import { saveSession } from './logic.js';
+import { state, escHtml, getCustomField, setCustomValue, CONFIDENCE_LEVELS, findDuplicateLevel } from './state.js';
+import { saveSession, showToast } from './logic.js';
 import { moveLevel, moveLevelUp, moveLevelDown, moveToPosition, deleteLevel, reevaluateRanked } from './logic.js';
 import { openEditModal } from './render.modals.js';
 
@@ -158,6 +158,18 @@ export function saveEditableCell(el) {
   if (!level) return;
 
   const value = el.tagName === 'SELECT' ? el.value : el.textContent.trim();
+
+  if (field === 'name') {
+    const duplicate = findDuplicateLevel(
+      { ...level, name: value },
+      state.rawLevels.filter(l => l._id !== level._id)
+    );
+    if (duplicate) {
+      showToast(`A level with the same name or ID already exists: "${duplicate.name || duplicate.id || duplicate._id}".`, 'danger');
+      document.dispatchEvent(new CustomEvent('dl:render'));
+      return;
+    }
+  }
 
   if (field === 'tags') {
     level.tags = value || null;
