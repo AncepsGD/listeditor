@@ -11,7 +11,17 @@ export const CONFIG_TEMPLATES = {
         { id: 'certain', label: 'Certain', emoji: '🔥' },
         { id: 'unsure', label: 'Unsure', emoji: '❓' },
       ],
-      presetSources: [],
+      presetSources: [
+        { label: 'THAL - Achievements', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/achievements.json' },
+        { label: 'THAL - Pending', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/pending.json' },
+        { label: 'THAL - Timeline', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/timeline.json' },
+        { label: 'THAL - Platformer Pending', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/platformerpending.json' },
+        { label: 'THAL - Platformer Timeline', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/platformertimeline.json' },
+        { label: 'THAL - Legacy', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/legacy.json' },
+        { label: 'Practice Mode List - Levels', url: 'https://fastly.jsdelivr.net/gh/AncepsGD/practice-mode-list@main/levels.json' },
+        { label: 'Practice Mode List - Verifications', url: 'https://fastly.jsdelivr.net/gh/AncepsGD/practice-mode-list@main/verifications.json' },
+        { label: 'Old Impossible Levels List', url: 'https://fastly.jsdelivr.net/gh/AncepsGD/old-impossible-levels-list@main/levels.json' },
+      ],
       fields: {
         namePlaceholder: 'Item name',
         creatorsPlaceholder: 'Creator(s)',
@@ -46,7 +56,17 @@ export const CONFIG_TEMPLATES = {
         { id: 'equal', label: 'Equal', emoji: '⚖' },
         { id: 'unsure', label: 'Unsure', emoji: '❓' },
       ],
-      presetSources: [],
+      presetSources: [
+        { label: 'THAL - Achievements', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/achievements.json' },
+        { label: 'THAL - Pending', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/pending.json' },
+        { label: 'THAL - Timeline', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/timeline.json' },
+        { label: 'THAL - Platformer Pending', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/platformerpending.json' },
+        { label: 'THAL - Platformer Timeline', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/platformertimeline.json' },
+        { label: 'THAL - Legacy', url: 'https://fastly.jsdelivr.net/gh/The-Hardest-Achievements-List/The-Hardest-Achievements-List@main/data/legacy.json' },
+        { label: 'Practice Mode List - Levels', url: 'https://fastly.jsdelivr.net/gh/AncepsGD/practice-mode-list@main/levels.json' },
+        { label: 'Practice Mode List - Verifications', url: 'https://fastly.jsdelivr.net/gh/AncepsGD/practice-mode-list@main/verifications.json' },
+        { label: 'Old Impossible Levels List', url: 'https://fastly.jsdelivr.net/gh/AncepsGD/old-impossible-levels-list@main/levels.json' },
+      ],
       fields: {
         namePlaceholder: 'Level name',
         creatorsPlaceholder: 'Creator(s)',
@@ -134,6 +154,11 @@ export const state = {
   dynamicFields: [],
   lastImportWasArray: false,
   settings: { ...DEFAULT_CONFIG.defaultSettings },
+  presetSourceUrl: null,
+  presetDataHash: null,
+  lastUpdateCheck: null,
+  updateCheckTimer: null,
+  pendingUpdate: null,
 };
 
 export function setFieldLabel(fieldId, label) {
@@ -527,12 +552,6 @@ export function getLevelUniqueIds(level) {
 export function isDuplicateLevel(level, other) {
   if (!level || !other) return false;
 
-  const levelIds = getLevelUniqueIds(level);
-  const otherIds = getLevelUniqueIds(other);
-  if (levelIds.length && otherIds.length) {
-    if (levelIds.some(id => otherIds.includes(id))) return true;
-  }
-
   const normalizedName = normalizeLevelName(level.name);
   const otherName = normalizeLevelName(other.name);
   return normalizedName && otherName && normalizedName === otherName;
@@ -621,6 +640,85 @@ export function parseCSV(data) {
 export function getCustomValue(level, valueId) {
   const raw = level.customValues?.[valueId];
   return raw == null ? '' : String(raw);
+}
+
+export function computeDataHash(levels) {
+  const normalized = JSON.stringify(
+    levels.map(l => ({
+      name: l.name,
+      id: l.id,
+      creators: l.creators,
+      tags: l.tags,
+      gdId: l.gdId,
+      rank: l.rank,
+    })).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  );
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return String(hash);
+}
+
+export async function fetchPresetData(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    let levelsArray;
+    if (data && data.levels && Array.isArray(data.levels)) {
+      levelsArray = data.levels;
+    } else if (Array.isArray(data)) {
+      levelsArray = data;
+    } else if (data && typeof data === 'object') {
+      levelsArray = [data];
+    } else {
+      throw new Error('Invalid format');
+    }
+
+    return levelsArray.map(l => normalizeLevelObject(l));
+  } catch (error) {
+    console.error('Failed to fetch preset:', error);
+    return null;
+  }
+}
+
+export function generateUpdateDiff(newLevels, currentLevels) {
+  const added = [];
+  const updated = [];
+  const removed = [];
+
+  const currentMap = new Map(currentLevels.map(l => [normalizeLevelName(l.name), l]));
+
+  for (const newLevel of newLevels) {
+    const normalized = normalizeLevelName(newLevel.name);
+    const existing = currentMap.get(normalized);
+
+    if (!existing) {
+      added.push(newLevel);
+    } else {
+      const hasChanges =
+        newLevel.creators !== existing.creators ||
+        JSON.stringify(newLevel.tags) !== JSON.stringify(existing.tags) ||
+        newLevel.gdId !== existing.gdId;
+
+      if (hasChanges) {
+        updated.push({ old: existing, new: newLevel });
+      }
+    }
+  }
+
+  const newNames = new Set(newLevels.map(l => normalizeLevelName(l.name)));
+  for (const current of currentLevels) {
+    if (!newNames.has(normalizeLevelName(current.name))) {
+      removed.push(current);
+    }
+  }
+
+  return { added, updated, removed };
 }
 
 export function formatCustomFieldValue(level, field) {
