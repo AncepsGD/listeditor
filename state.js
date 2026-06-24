@@ -513,6 +513,48 @@ export function normalizeLevelObject(obj) {
   return result;
 }
 
+export function normalizeLevelName(name) {
+  return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function getLevelUniqueIds(level) {
+  if (!level || typeof level !== 'object') return [];
+  return [level.id, level.levelId, level.levelID, level.gdId]
+    .filter(id => id != null && String(id).trim() !== '')
+    .map(id => String(id).trim());
+}
+
+export function isDuplicateLevel(level, other) {
+  if (!level || !other) return false;
+
+  const levelIds = getLevelUniqueIds(level);
+  const otherIds = getLevelUniqueIds(other);
+  if (levelIds.length && otherIds.length) {
+    if (levelIds.some(id => otherIds.includes(id))) return true;
+  }
+
+  const normalizedName = normalizeLevelName(level.name);
+  const otherName = normalizeLevelName(other.name);
+  return normalizedName && otherName && normalizedName === otherName;
+}
+
+export function findDuplicateLevel(level, levels) {
+  if (!Array.isArray(levels)) return undefined;
+  return levels.find(other => other._id !== level._id && isDuplicateLevel(level, other));
+}
+
+export function removeDuplicateLevels(levels, existingLevels = []) {
+  const uniqueLevels = [];
+  for (const level of levels) {
+    const duplicateInExisting = existingLevels.some(existing => isDuplicateLevel(level, existing));
+    const duplicateInUnique = uniqueLevels.some(existing => isDuplicateLevel(level, existing));
+    if (!duplicateInExisting && !duplicateInUnique) {
+      uniqueLevels.push(level);
+    }
+  }
+  return uniqueLevels;
+}
+
 export function looksLikePlainText(data) {
   if (typeof data !== 'string') return false;
   const trimmed = data.trim();
