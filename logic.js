@@ -481,6 +481,19 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
   if (forceMode === 'append') shouldAppend = true;
   else if (forceMode === 'replace') shouldAppend = false;
 
+  const existingLevels = shouldAppend ? state.rawLevels : [];
+  const beforeDedupCount = valid.length;
+  valid = removeDuplicateLevels(valid, existingLevels);
+  const removedCount = beforeDedupCount - valid.length;
+  if (removedCount > 0) {
+    showToast(`Skipped ${removedCount} duplicate level(s) during import.`, 'gold');
+  }
+
+  if (valid.length === 0) {
+    showImportError('No new levels were imported because all levels were duplicates.', getCurrentImportPanel());
+    return;
+  }
+
   let newRawLevels;
   if (shouldAppend && hasExistingLevels) {
     newRawLevels = [
