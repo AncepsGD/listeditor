@@ -1,4 +1,4 @@
-import { state, escHtml, makeLevelId, getCustomField } from './state.js';
+import { state, escHtml, makeLevelId, getCustomField, findDuplicateLevel } from './state.js';
 import { startInsertion, saveSession } from './logic.js';
 import { showToast, deleteLevel, reevaluateRanked, resolveContradiction } from './logic.js';
 import { thumbUrl, gdThumbUrl } from './state.js';
@@ -121,11 +121,21 @@ export function submitModal() {
       try {
         return JSON.parse(victorsStr);
       } catch (e) {
-        showToast('Invalid victors JSON');
+        showToast('Invalid victors JSON', 'danger');
         return null;
       }
     })(),
   };
+
+  const duplicate = findDuplicateLevel(
+    { ...data, _id: state.modalLevelId ?? undefined },
+    state.rawLevels.filter(l => l._id !== state.modalLevelId)
+  );
+
+  if (duplicate) {
+    showToast(`A level with the same name or ID already exists: "${duplicate.name || duplicate.id || duplicate._id}".`, 'danger');
+    return;
+  }
 
   if (state.modalMode === 'edit' && state.modalLevelId) {
     const level = state.levelMap.get(state.modalLevelId);
