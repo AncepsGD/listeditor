@@ -3,6 +3,8 @@ import {
   normalizeLevelObject, parsePlainText, parseCSV,
   looksLikePlainText, looksLikeCSV,
   STORAGE_KEY, saveSettings, detectColumnsFromLevels,
+  removeDuplicateLevels, computeDataHash, fetchPresetData,
+  generateUpdateDiff, normalizeLevelName,
 } from './state.js';
 
 function triggerRender() {
@@ -344,6 +346,9 @@ export function saveSession() {
         stepHistory: state.insertionSession.stepHistory,
         minConfidence: state.insertionSession.minConfidence,
       } : null,
+      presetSourceUrl: state.presetSourceUrl,
+      presetDataHash: state.presetDataHash,
+      lastUpdateCheck: state.lastUpdateCheck,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
   } catch (_) { }
@@ -399,8 +404,15 @@ export function loadSession() {
       }
     }
 
+    state.presetSourceUrl = data.presetSourceUrl ?? null;
+    state.presetDataHash = data.presetDataHash ?? null;
+    state.lastUpdateCheck = data.lastUpdateCheck ?? null;
+
     checkContradictions();
     detectColumnsFromLevels();
+    if (state.presetSourceUrl) {
+      startUpdateChecker();
+    }
     return true;
   } catch (_) {
     return false;
@@ -453,7 +465,7 @@ export function getCurrentImportPanel() {
   return 'main';
 }
 
-export function processLevels(levelsArray, importTarget = 'main', shouldAppend = false, forceMode = null) {
+export function processLevels(levelsArray, importTarget = 'main', shouldAppend = false, forceMode = null, presetUrl = null) {
   let valid = levelsArray
     .map(level => normalizeLevelObject(level))
     .filter(l => typeof l?.name === 'string' && l.name.trim());
@@ -549,17 +561,22 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
       `Loaded ${state.rawLevels.length} levels (${state.rankedList.length} ranked, ${state.pendingLevels.length} pending)`
     );
   }
+
+  if (presetUrl && !shouldAppend) {
+    recordPresetSource(presetUrl);
+    startUpdateChecker();
+  }
 }
 
-export function loadJSON(data, forceMode = null) {
+export function loadJSON(data, forceMode = null, presetUrl = null) {
   const panelId = getCurrentImportPanel();
   const importTarget = panelId === 'pending' ? 'pending' : 'main';
 
   if (typeof data === 'string' && looksLikePlainText(data)) {
     if (looksLikeCSV(data)) {
-      processLevels(parseCSV(data), importTarget, false, forceMode);
+      processLevels(parseCSV(data), importTarget, false, forceMode, presetUrl);
     } else {
-      processLevels(parsePlainText(data), importTarget, false, forceMode);
+      processLevels(parsePlainText(data), importTarget, false, forceMode, presetUrl);
     }
     return;
   }
@@ -602,7 +619,7 @@ export function loadJSON(data, forceMode = null) {
     return;
   }
 
-  processLevels(levelsArray, importTarget, false, forceMode);
+  processLevels(levelsArray, importTarget, false, forceMode, presetUrl);
 }
 
 export function reset() {
@@ -688,4 +705,167 @@ export function getRankingsExport() {
 
     return exportObj;
   });
+}
+
+export function recordPresetSource(url) {
+  state.presetSourceUrl = url;
+  state.presetDataHash = computeDataHash(state.rawLevels);
+  state.lastUpdateCheck = Date.now();
+}
+
+export async function checkForPresetUpdates() {
+  if (!state.presetSourceUrl || state.rawLevels.length === 0) {
+    return null;
+  }
+
+  const newLevels = await fetchPresetData(state.presetSourceUrl);
+  if (!newLevels) {
+    return null;
+  }
+
+  const newHash = computeDataHash(newLevels);
+  if (newHash === state.presetDataHash) {
+    return null;
+  }
+
+  const diff = generateUpdateDiff(newLevels, state.rawLevels);
+  if (diff.added.length === 0 && diff.updated.length === 0 && diff.removed.length === 0) {
+    return null;
+  }
+
+  state.pendingUpdate = {
+    diff,
+    newHash,
+    newLevels,
+    timestamp: Date.now(),
+  };
+
+  return state.pendingUpdate;
+}
+
+export function showUpdatePrompt(update) {
+  const modal = document.getElementById('update-preview-modal');
+  if (!modal) return;
+
+  const { diff } = update;
+  const title = modal.querySelector('[data-update-title]');
+  const content = modal.querySelector('[data-update-content]');
+
+  if (title) {
+    title.textContent = `Preset Updates Available (${diff.added.length + diff.updated.length + diff.removed.length} changes)`;
+  }
+
+  if (content) {
+    const html = `
+      ${diff.added.length > 0 ? `
+        <div style="margin-bottom: 1em;">
+          <strong style="color: #4caf50;">✓ Added (${diff.added.length})</strong>
+          <ul style="margin: 0.5em 0; padding-left: 1.5em;">
+            ${diff.added.slice(0, 5).map(l => `<li>${escapeHtml(l.name)}</li>`).join('')}
+            ${diff.added.length > 5 ? `<li>... and ${diff.added.length - 5} more</li>` : ''}
+          </ul>
+        </div>
+      ` : ''}
+      ${diff.updated.length > 0 ? `
+        <div style="margin-bottom: 1em;">
+          <strong style="color: #2196f3;">⟳ Updated (${diff.updated.length})</strong>
+          <ul style="margin: 0.5em 0; padding-left: 1.5em;">
+            ${diff.updated.slice(0, 5).map(({ newLevel: l }) => `<li>${escapeHtml(l.name)}</li>`).join('')}
+            ${diff.updated.length > 5 ? `<li>... and ${diff.updated.length - 5} more</li>` : ''}
+          </ul>
+        </div>
+      ` : ''}
+      ${diff.removed.length > 0 ? `
+        <div style="margin-bottom: 1em;">
+          <strong style="color: #f44336;">✗ Removed (${diff.removed.length})</strong>
+          <ul style="margin: 0.5em 0; padding-left: 1.5em;">
+            ${diff.removed.slice(0, 5).map(l => `<li>${escapeHtml(l.name)}</li>`).join('')}
+            ${diff.removed.length > 5 ? `<li>... and ${diff.removed.length - 5} more</li>` : ''}
+          </ul>
+        </div>
+      ` : ''}
+    `;
+    content.innerHTML = html;
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+export function mergeUpdates() {
+  if (!state.pendingUpdate) return false;
+
+  const merged = mergePresetUpdates(state.pendingUpdate.diff);
+  state.presetDataHash = state.pendingUpdate.newHash;
+  state.lastUpdateCheck = Date.now();
+  state.pendingUpdate = null;
+
+  saveSession();
+  detectColumnsFromLevels();
+  triggerRender();
+
+  showToast(`Merged preset updates: ${merged} changes`, 'gold');
+  return true;
+}
+
+export function dismissUpdate() {
+  state.pendingUpdate = null;
+  const modal = document.getElementById('update-preview-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+export function startUpdateChecker() {
+  const checkUpdates = async () => {
+    const update = await checkForPresetUpdates();
+    if (update) {
+      showUpdatePrompt(update);
+    }
+  };
+
+  if (!state.updateCheckTimer) {
+    checkUpdates();
+    state.updateCheckTimer = setInterval(checkUpdates, 5 * 60 * 1000);
+  }
+}
+
+export function mergePresetUpdates(diff) {
+  let mergedCount = 0;
+  
+  for (const removed of diff.removed) {
+    const idx = state.rawLevels.findIndex(l => l._id === removed._id);
+    if (idx !== -1) {
+      state.rawLevels.splice(idx, 1);
+      state.rankedList = state.rankedList.filter(l => l._id !== removed._id);
+      state.pendingLevels = state.pendingLevels.filter(l => l._id !== removed._id);
+      state.levelMap.delete(removed._id);
+    }
+  }
+  
+  for (const { old, newLevel } of diff.updated) {
+    old.creators = newLevel.creators;
+    old.tags = newLevel.tags;
+    old.gdId = newLevel.gdId;
+    mergedCount++;
+  }
+  
+  for (const newLevel of diff.added) {
+    const newId = makeLevelId(newLevel, state.rawLevels.length);
+    const levelWithId = { ...newLevel, _id: newId };
+    state.rawLevels.push(levelWithId);
+    state.levelMap.set(newId, levelWithId);
+    if (!newLevel.pending && !newLevel.rank) {
+      state.pendingLevels.push(levelWithId);
+    }
+    mergedCount++;
+  }
+  
+  state.rankedList = sortLevelsForRankings(state.rawLevels);
+  state.pendingLevels = state.rawLevels.filter(l => l.pending);
+  
+  return mergedCount;
 }

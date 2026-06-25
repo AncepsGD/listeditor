@@ -706,7 +706,7 @@ export function generateUpdateDiff(newLevels, currentLevels) {
         newLevel.gdId !== existing.gdId;
 
       if (hasChanges) {
-        updated.push({ old: existing, new: newLevel });
+        updated.push({ old: existing, newLevel: newLevel });
       }
     }
   }
