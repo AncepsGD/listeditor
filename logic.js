@@ -11,6 +11,27 @@ function triggerRender() {
   document.dispatchEvent(new CustomEvent('dl:render'));
 }
 
+function cleanExportObject(value) {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (Array.isArray(value)) {
+    const cleanedArray = value
+      .map(cleanExportObject)
+      .filter(item => item !== null && item !== undefined && item !== '');
+    return cleanedArray.length > 0 ? cleanedArray : undefined;
+  }
+  if (typeof value !== 'object') return value;
+
+  const cleanedObject = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const cleanedValue = cleanExportObject(nestedValue);
+    if (cleanedValue === null || cleanedValue === undefined || cleanedValue === '') continue;
+    if (Array.isArray(cleanedValue) && cleanedValue.length === 0) continue;
+    if (typeof cleanedValue === 'object' && Object.keys(cleanedValue).length === 0) continue;
+    cleanedObject[key] = cleanedValue;
+  }
+  return Object.keys(cleanedObject).length > 0 ? cleanedObject : undefined;
+}
+
 function switchToTab(tabName) {
   document.dispatchEvent(new CustomEvent('dl:tabswitch', { detail: { tab: tabName } }));
 }
@@ -681,7 +702,7 @@ export function getRankingsExport() {
         const customVal = level.customValues?.[value.id];
         if (customVal != null && customVal !== '') out[value.name] = customVal;
       });
-      return out;
+      return cleanExportObject(out);
     });
   }
 
@@ -706,7 +727,7 @@ export function getRankingsExport() {
       if (customVal != null && customVal !== '') exportObj[value.name] = customVal;
     });
 
-    return exportObj;
+    return cleanExportObject(exportObj);
   });
 }
 
