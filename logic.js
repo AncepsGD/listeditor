@@ -668,10 +668,12 @@ export function getRankingsExport() {
     return state.rankedList.map(level => {
       const out = {};
       Object.keys(level).forEach(k => {
-
         if (['_id', 'pending', 'lowConfidence', 'confidence', 'lastEdited'].includes(k)) return;
         if (k === 'customValues') return;
-        out[k] = level[k];
+
+        const value = level[k];
+        if (value === null || value === undefined || value === '') return;
+        out[k] = value;
       });
 
       state.customValues.forEach(value => {
@@ -689,7 +691,8 @@ export function getRankingsExport() {
       if (col === 'confidence' || col === 'lastEdited') return;
       const value = level[col];
       if (col === 'tags' && Array.isArray(value)) {
-        exportObj[col] = value.join(', ');
+        const tags = value.join(', ').trim();
+        if (tags !== '') exportObj[col] = tags;
       } else if (value !== null && value !== undefined && value !== '') {
         exportObj[col] = value;
       }
@@ -835,7 +838,7 @@ export function startUpdateChecker() {
 
 export function mergePresetUpdates(diff) {
   let mergedCount = 0;
-  
+
   for (const removed of diff.removed) {
     const idx = state.rawLevels.findIndex(l => l._id === removed._id);
     if (idx !== -1) {
@@ -845,14 +848,14 @@ export function mergePresetUpdates(diff) {
       state.levelMap.delete(removed._id);
     }
   }
-  
+
   for (const { old, newLevel } of diff.updated) {
     old.creators = newLevel.creators;
     old.tags = newLevel.tags;
     old.gdId = newLevel.gdId;
     mergedCount++;
   }
-  
+
   for (const newLevel of diff.added) {
     const newId = makeLevelId(newLevel, state.rawLevels.length);
     const levelWithId = { ...newLevel, _id: newId };
@@ -863,9 +866,9 @@ export function mergePresetUpdates(diff) {
     }
     mergedCount++;
   }
-  
+
   state.rankedList = sortLevelsForRankings(state.rawLevels);
   state.pendingLevels = state.rawLevels.filter(l => l.pending);
-  
+
   return mergedCount;
 }
