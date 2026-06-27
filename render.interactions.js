@@ -165,7 +165,7 @@ export function saveEditableCell(el) {
       state.rawLevels.filter(l => l._id !== level._id)
     );
     if (duplicate) {
-      showToast(`A level with the same name or ID already exists: "${duplicate.name || duplicate.id || duplicate._id}".`, 'danger');
+      showToast(`A level with the same name already exists: "${duplicate.name || level.name}".`, 'danger');
       document.dispatchEvent(new CustomEvent('dl:render'));
       return;
     }

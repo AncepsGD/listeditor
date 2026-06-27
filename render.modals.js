@@ -18,7 +18,7 @@ export function openEditModal(levelId) {
   document.getElementById('modal-name').value = level.name || '';
   document.getElementById('modal-creators').value = level.creators || '';
   document.getElementById('modal-video').value = level.showcaseVideo || '';
-  document.getElementById('modal-listid').value = level.id != null ? level.id : '';
+  document.getElementById('modal-listid').value = level.originalName ?? (level.id != null ? String(level.id) : '');
   const editNotesInput = document.getElementById('modal-notes');
   if (editNotesInput) editNotesInput.value = level.notes || '';
   document.getElementById('modal-victors').value = level.victors ? JSON.stringify(level.victors, null, 2) : '';
@@ -64,7 +64,7 @@ export function closeModal() {
 export function updateModalThumb() {
   const videoVal = document.getElementById('modal-video')?.value ?? '';
   const listidVal = document.getElementById('modal-listid')?.value ?? '';
-  const gdId = listidVal ? (parseInt(listidVal) || null) : null;
+  const gdId = listidVal && /^\d+$/.test(listidVal.trim()) ? parseInt(listidVal.trim(), 10) : null;
   const ytUrl = thumbUrl(videoVal);
   const gdUrl = gdId ? gdThumbUrl(gdId) : null;
   const primary = gdUrl || ytUrl;
@@ -103,13 +103,15 @@ export function submitModal() {
     return;
   }
 
+  const listReferenceValue = document.getElementById('modal-listid').value.trim();
+  const numericId = listReferenceValue && /^\d+$/.test(listReferenceValue) ? parseInt(listReferenceValue, 10) : null;
+
   const data = {
     name,
     creators: document.getElementById('modal-creators').value.trim() || null,
     showcaseVideo: document.getElementById('modal-video').value.trim() || null,
-    id: document.getElementById('modal-listid').value !== ''
-      ? parseInt(document.getElementById('modal-listid').value) || null
-      : null,
+    id: numericId,
+    originalName: listReferenceValue || null,
     notes: (() => {
       const notesInput = document.getElementById('modal-notes');
       return notesInput ? notesInput.value.trim() || null : null;
@@ -133,7 +135,7 @@ export function submitModal() {
   );
 
   if (duplicate) {
-    showToast(`A level with the same name or ID already exists: "${duplicate.name || duplicate.id || duplicate._id}".`, 'danger');
+    showToast(`A level with the same name already exists: "${duplicate.name || name}".`, 'danger');
     return;
   }
 

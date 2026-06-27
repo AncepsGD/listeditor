@@ -71,7 +71,7 @@ export const CONFIG_TEMPLATES = {
         namePlaceholder: 'Level name',
         creatorsPlaceholder: 'Creator(s)',
         videoPlaceholder: 'https://youtu.be/…',
-        listIdPlaceholder: 'Original list ID',
+        listIdPlaceholder: 'Original list name',
         notesPlaceholder: 'Optional notes about placement...',
         victorsPlaceholder: '[{"name": "Player", "date": "YYYY-MM-DD", "time": "Hh Mm Ss", "attempts": 123, "video": "https://..."}]',
         filterPlaceholder: 'Filter by name...',
