@@ -5,6 +5,7 @@ import {
   loadSession, getRankingsExport, showToast,
   showImportError, hideImportError, getMid,
   checkContradictions, clearSession, saveSession,
+  mergeUpdates, dismissUpdate,
 } from './logic.js';
 import { renderAll } from './render.main.js';
 import {
@@ -14,10 +15,19 @@ import {
 } from './render.modals.js';
 import {
   state, config, applyUserConfig,
-  loadSettings, saveSettings, hideColumn,
+  loadSettings, saveSettings, hideColumn, escHtml,
   CONFIG_TEMPLATES, listAvailableTemplates, applyConfigTemplate,
   listConfigTemplates, saveConfigTemplate, getSelectedTemplate,
 } from './state.js';
+import {
+  addDetectedColumn,
+  getOrderedColumns,
+  hideColumn as hideColumnByName,
+  showColumn,
+  removeDetectedColumn,
+  reorderColumn,
+} from './state.columns.js';
+import { BUILTIN_FIELD_DEFINITIONS, getFieldDefinition, getFieldLabel, setFieldLabel } from './state.fields.js';
 
 window.demonListUI = {
   loadJSON, reset, vote, undo, cancelInsertion,
@@ -160,6 +170,71 @@ function initializeTemplateSelection() {
   initializeUI();
 }
 
+function renderColumnsList() {
+  const listEl = document.getElementById('columns-list');
+  const addSelect = document.getElementById('column-add-select');
+  if (!listEl) return;
+
+  const availableColumns = [];
+  const detectedColumns = [...state.detectedColumns];
+  const allFields = [
+    ...BUILTIN_FIELD_DEFINITIONS,
+    ...state.dynamicFields,
+    ...state.customValues.map(field => ({ id: `custom_${field.id}`, label: field.name, custom: true })),
+  ];
+
+  allFields.forEach(field => {
+    if (!detectedColumns.includes(field.id)) {
+      availableColumns.push(field);
+    }
+  });
+
+  if (addSelect) {
+    addSelect.innerHTML = '<option value="">Add a column…</option>' + availableColumns.map(field => `<option value="${field.id}">${escHtml(field.label)}</option>`).join('');
+  }
+
+  listEl.innerHTML = detectedColumns.map(column => {
+    const fieldDef = getFieldDefinition(column);
+    const label = getFieldLabel(column);
+    const hidden = state.hiddenColumns.includes(column);
+    return `
+      <div class="column-manager-item ${hidden ? 'is-hidden' : ''}">
+        <div class="column-manager-main">
+          <div class="column-manager-name">${escHtml(label)}</div>
+          <div class="column-manager-meta">${escHtml(fieldDef?.type || 'field')} • ${hidden ? 'Hidden' : 'Visible'}</div>
+        </div>
+        <div class="column-manager-controls">
+          <input type="text" class="field-input column-rename-input" data-column="${column}" value="${escHtml(label)}" placeholder="Rename column">
+          <button class="btn btn-xs column-action-btn" data-action="toggle" data-column="${column}">${hidden ? 'Show' : 'Hide'}</button>
+          <button class="btn btn-xs btn-danger column-action-btn" data-action="remove" data-column="${column}">Remove</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.column-rename-input').forEach(input => {
+    input.addEventListener('change', () => {
+      const { column } = input.dataset;
+      const label = input.value.trim();
+      if (!column) return;
+      setFieldLabel(column, label);
+      saveSettings();
+      renderAll();
+      renderColumnsList();
+    });
+  });
+}
+
+function openColumnsModal() {
+  renderColumnsList();
+  const modal = document.getElementById('columns-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeColumnsModal() {
+  const modal = document.getElementById('columns-modal');
+  if (modal) modal.classList.remove('active');
+}
+
 function initializeUI() {
   const tabs = document.querySelectorAll('.tab');
   const tabContents = document.querySelectorAll('.tab-content');
@@ -276,7 +351,7 @@ function initializeUI() {
         throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
       }
       const text = await response.text();
-      loadJSON(text);
+      loadJSON(text, null, url);
     } catch (error) {
       showImportError(`Could not load URL: ${error.message}`, 'main');
     }
@@ -338,6 +413,7 @@ function initializeUI() {
   const cancelBtn = document.getElementById('skip-btn');
   const addLevelBtn = document.getElementById('add-level-btn');
   const customValuesBtn = document.getElementById('custom-values-btn');
+  const columnsBtn = document.getElementById('columns-btn');
   const replaceMainBtn = document.getElementById('replace-main-btn');
   const importPendingBtn = document.getElementById('import-pending-btn');
   const backFromPendingBtn = document.getElementById('back-from-pending-btn');
@@ -347,6 +423,7 @@ function initializeUI() {
   if (resetBtn) resetBtn.addEventListener('click', reset);
   if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
   if (customValuesBtn) customValuesBtn.addEventListener('click', openCustomValuesModal);
+  if (columnsBtn) columnsBtn.addEventListener('click', openColumnsModal);
   if (undoBtn) undoBtn.addEventListener('click', undo);
   if (addLevelBtn) addLevelBtn.addEventListener('click', openAddModal);
 
@@ -432,6 +509,34 @@ function initializeUI() {
   const customValuesModalCloseBtn = document.getElementById('custom-values-modal-close-btn');
   if (customValuesModalCloseBtn) customValuesModalCloseBtn.addEventListener('click', closeCustomValuesModal);
 
+  const columnsModalCloseBtn = document.getElementById('columns-modal-close-btn');
+  if (columnsModalCloseBtn) columnsModalCloseBtn.addEventListener('click', closeColumnsModal);
+
+  const columnsCloseBtn = document.getElementById('columns-close');
+  if (columnsCloseBtn) columnsCloseBtn.addEventListener('click', closeColumnsModal);
+
+  const columnsModalOverlay = document.getElementById('columns-modal');
+  if (columnsModalOverlay) {
+    columnsModalOverlay.addEventListener('click', e => {
+      if (e.target === columnsModalOverlay) closeColumnsModal();
+    });
+  }
+
+  const columnsAddBtn = document.getElementById('column-add-btn');
+  const columnsAddSelect = document.getElementById('column-add-select');
+  if (columnsAddBtn && columnsAddSelect) {
+    columnsAddBtn.addEventListener('click', () => {
+      const value = columnsAddSelect.value;
+      if (!value) return;
+      addDetectedColumn(value);
+      saveSession();
+      renderAll();
+      renderColumnsList();
+      columnsAddSelect.value = '';
+      showToast('Column added');
+    });
+  }
+
   const customValuesCloseBtn = document.getElementById('custom-values-close');
   if (customValuesCloseBtn) customValuesCloseBtn.addEventListener('click', closeCustomValuesModal);
 
@@ -462,6 +567,28 @@ function initializeUI() {
       if (e.key === 'Escape') closeCustomValuesModal();
     });
   }
+
+  document.addEventListener('click', e => {
+    if (e.target.classList.contains('column-action-btn')) {
+      const action = e.target.dataset.action;
+      const column = e.target.dataset.column;
+      if (action === 'toggle') {
+        if (state.hiddenColumns.includes(column)) {
+          showColumn(column);
+        } else {
+          hideColumnByName(column);
+        }
+        saveSession();
+        renderAll();
+        renderColumnsList();
+      } else if (action === 'remove') {
+        removeDetectedColumn(column);
+        saveSession();
+        renderAll();
+        renderColumnsList();
+      }
+    }
+  });
 
   const modalVideoInput = document.getElementById('modal-video');
   if (modalVideoInput) modalVideoInput.addEventListener('input', updateModalThumb);
@@ -560,5 +687,30 @@ function initializeUI() {
     if (rb) rb.classList.remove('hidden');
     activateTab('comparison');
     renderAll();
+  }
+
+  const updatePreviewCloseBtn = document.getElementById('update-preview-close-btn');
+  if (updatePreviewCloseBtn) updatePreviewCloseBtn.addEventListener('click', dismissUpdate);
+
+  const updatePreviewMergeBtn = document.getElementById('update-preview-merge');
+  if (updatePreviewMergeBtn) updatePreviewMergeBtn.addEventListener('click', () => {
+    mergeUpdates();
+    document.getElementById('update-preview-modal')?.classList.add('hidden');
+  });
+
+  const updatePreviewDismissBtn = document.getElementById('update-preview-dismiss');
+  if (updatePreviewDismissBtn) updatePreviewDismissBtn.addEventListener('click', () => {
+    dismissUpdate();
+    document.getElementById('update-preview-modal')?.classList.add('hidden');
+  });
+
+  const updatePreviewOverlay = document.getElementById('update-preview-modal');
+  if (updatePreviewOverlay) {
+    updatePreviewOverlay.addEventListener('click', e => {
+      if (e.target === updatePreviewOverlay) dismissUpdate();
+    });
+    updatePreviewOverlay.addEventListener('keydown', e => {
+      if (e.key === 'Escape') dismissUpdate();
+    });
   }
 }

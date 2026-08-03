@@ -108,23 +108,23 @@ export function submitModal() {
 
   const data = {
     name,
-    creators: document.getElementById('modal-creators').value.trim() || null,
-    showcaseVideo: document.getElementById('modal-video').value.trim() || null,
+    creators: document.getElementById('modal-creators').value.trim() || undefined,
+    showcaseVideo: document.getElementById('modal-video').value.trim() || undefined,
     id: numericId,
-    originalName: listReferenceValue || null,
+    originalName: listReferenceValue || undefined,
     notes: (() => {
       const notesInput = document.getElementById('modal-notes');
-      return notesInput ? notesInput.value.trim() || null : null;
+      return notesInput ? notesInput.value.trim() || undefined : undefined;
     })(),
     victors: (() => {
       const victorsInput = document.getElementById('modal-victors');
       const victorsStr = victorsInput ? victorsInput.value.trim() : '';
-      if (!victorsStr) return null;
+      if (!victorsStr) return undefined;
       try {
         return JSON.parse(victorsStr);
       } catch (e) {
         showToast('Invalid victors JSON', 'danger');
-        return null;
+        return undefined;
       }
     })(),
   };
@@ -142,7 +142,15 @@ export function submitModal() {
   if (state.modalMode === 'edit' && state.modalLevelId) {
     const level = state.levelMap.get(state.modalLevelId);
     if (level) {
-      Object.assign(level, data);
+
+      Object.keys(data).forEach(key => {
+        if (data[key] !== undefined) {
+          level[key] = data[key];
+        } else {
+
+          delete level[key];
+        }
+      });
       level.lastEdited = new Date().toISOString();
       saveSession();
       document.dispatchEvent(new CustomEvent('dl:render'));
@@ -151,8 +159,15 @@ export function submitModal() {
   } else if (state.modalMode === 'add') {
     const statusEl = document.querySelector('input[name="modal-status"]:checked');
     const status = statusEl ? statusEl.value : 'pending';
-    const _id = makeLevelId(data, state.rawLevels.length);
-    const level = { ...data, _id, pending: true, customValues: {} };
+    const cleanData = {};
+    Object.keys(data).forEach(key => {
+      if (data[key] !== undefined) {
+        cleanData[key] = data[key];
+      }
+    });
+
+    const _id = makeLevelId(cleanData, state.rawLevels.length);
+    const level = { ...cleanData, _id, pending: true, customValues: {} };
     state.rawLevels.push(level);
     state.levelMap.set(_id, level);
 

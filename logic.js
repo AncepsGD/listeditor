@@ -553,6 +553,7 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
   }
 
   state.rankedList = sortLevelsForRankings(state.rawLevels);
+  state.selectedLevels = new Set();
 
   state.pendingLevels = state.rawLevels.filter(l => l.pending);
 
@@ -658,6 +659,7 @@ export function reset() {
   state.comparisonGraph = new Map();
   state.contradictions = [];
   state.selectedConfidence = CONFIDENCE_LEVELS.CERTAIN;
+  state.selectedLevels = new Set();
   state.detectedColumns = [];
   state.detectedColumnsOrder = {};
   clearSession();

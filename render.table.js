@@ -1,8 +1,10 @@
-import { state, escHtml, getCustomField, CONFIDENCE_LEVELS, getCustomValue, getOrderedColumns, getFieldDefinition } from './state.js';
+import { state, escHtml, getCustomField, CONFIDENCE_LEVELS, getCustomValue } from './state.js';
 import { getMid } from './logic.js';
 import { buildRankRow } from './render.rows.js';
 import { setupColumnDragHandlers, setupRankingsInteraction, updateBulkToolbar, setupBulkToolbarHandlers, renderRankingsSummary } from './render.interactions.js';
 import { formatTags } from './render.utils.js';
+import { getFieldDefinition, getFieldLabel } from './state.fields.js';
+import { getOrderedColumns } from './state.columns.js';
 
 const TEXT_COLLATOR = new Intl.Collator([], { numeric: true, sensitivity: 'base' });
 const DEFAULT_SORT = Object.freeze({ column: 'rank', direction: 'asc' });
@@ -197,7 +199,7 @@ export function renderRankings() {
     const detectedHeaders = orderedColumns
         .map(col => {
             const fieldDef = getFieldDefinition(col);
-            const displayName = fieldDef?.label || col.charAt(0).toUpperCase() + col.slice(1);
+            const displayName = getFieldLabel(col);
             const sortAttr = fieldDef?.sortable ? ` data-sort="${col}"` : '';
             return `<th${sortAttr} data-column="${col}" draggable="true" class="draggable-header">${escHtml(displayName)}</th>`;
         })
@@ -229,8 +231,7 @@ export function renderRankings() {
         removeColumnSelect.innerHTML = [
             '<option value="">Remove Column...</option>',
             ...orderedColumns.map(col => {
-                const fieldDef = getFieldDefinition(col);
-                const label = fieldDef?.label || col.charAt(0).toUpperCase() + col.slice(1);
+                const label = getFieldLabel(col);
                 return `<option value="${escHtml(col)}">${escHtml(label)}</option>`;
             }),
         ].join('');
@@ -261,7 +262,7 @@ export function renderRankings() {
     const mid = state.insertionSession ? getMid() : -1;
     const lo = state.insertionSession?.lo ?? -1;
     const hi = state.insertionSession?.hi ?? -1;
-    const filter = state.rankingFilter.toLowerCase();
+    const filter = String(state.rankingFilter ?? '').toLowerCase();
     const viewRows = getRankingsView();
 
     tbody.innerHTML = viewRows.map(entry => buildRankRow(entry, mid, lo, hi, filter)).join('');

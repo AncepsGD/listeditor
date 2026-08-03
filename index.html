@@ -4,26 +4,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>External List Editor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=Barlow:wght@400;500;600;700&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260803">
 </head>
 
 <body>
-
-  <!--
-  ============================================================
-  APP CONFIGURATION - DEPRECATED
-  Configuration is now template-based. Users must select a
-  template or provide custom configuration on startup.
-  To use a custom config, set it via applyUserConfig() after
-  loading the page, or save a custom template.
-  ============================================================
-  -->
   <script>
 
     window.APP_CONFIG = null;
@@ -39,6 +32,7 @@
       <span class="logo-title">External List Editor</span>
     </div>
     <div class="header-actions">
+      <button id="columns-btn" class="btn" title="Manage Columns">📋 Columns</button>
       <button id="custom-values-btn" class="btn" title="Manage Custom Values">📊 Custom Values</button>
       <button id="settings-btn" class="btn" title="Settings">⚙ Settings</button>
       <button id="reset-btn" class="btn btn-danger hidden">↺ Reset</button>
@@ -60,6 +54,7 @@
       <button class="tab active" data-tab="import">Import</button>
       <button class="tab" data-tab="comparison">Comparison</button>
       <button class="tab" data-tab="rankings">Rankings</button>
+      <button class="tab" data-tab="consistency">Consistency</button>
     </div>
 
     <div id="import-tab" class="tab-content active">
@@ -224,6 +219,150 @@
       </section>
     </div>
 
+    <div id="consistency-tab" class="tab-content">
+      <section class="consistency-page">
+        <div class="consistency-hero">
+          <div class="consistency-eyebrow">Tooling</div>
+          <h3>Consistency Validation Checker</h3>
+          <p>Evaluate whether consistency achievements are valid for the set baseline.</p>
+        </div>
+
+        <div class="consistency-section">
+          <div class="consistency-grid">
+            <div class="consistency-panel">
+              <h4>Standard Execution</h4>
+              <div class="field-group">
+                <label class="field-label" for="baseline">Baseline %</label>
+                <input type="number" id="baseline" class="field-input" value="175" step="1">
+              </div>
+            </div>
+            <div class="consistency-panel">
+              <h4>Existing Achievement</h4>
+              <div class="field-group">
+                <label class="field-label" for="currentScore">Current Achievement Score</label>
+                <input type="number" id="currentScore" class="field-input" value="0" step="0.1">
+                <div class="hint">0 if no consistency achievement exists yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="consistency-section">
+          <div class="consistency-panel">
+            <h4>Level Segment Modifiers</h4>
+            <div class="hint" style="margin-bottom: 12px;">Each entry describes a segment of the level and its
+              difficulty relative to a normal level.</div>
+            <div id="lpContainer"></div>
+            <button class="btn btn-primary" id="addLp" type="button">＋ Add segment</button>
+          </div>
+        </div>
+
+        <details class="consistency-advanced">
+          <summary>Advanced options</summary>
+          <div class="consistency-advanced-body">
+            <div class="field-group">
+              <label class="field-label" for="margin">Significant Increase Margin (%)</label>
+              <input type="number" id="margin" class="field-input" value="10" step="1">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="tolerance">Tolerance (% of peak)</label>
+              <input type="number" id="tolerance" class="field-input" value="50" step="1" min="0" max="100">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="weight">Weight per qualifying run</label>
+              <input type="number" id="weight" class="field-input" value="200" step="0.5">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="decay">Decay (rank 3+)</label>
+              <input type="number" id="decay" class="field-input" value="0.7" step="0.05" min="0" max="1">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="preWeight">Pre-Peak Weight Multiplier</label>
+              <input type="number" id="preWeight" class="field-input" value="0.5" step="0.05" min="0" max="1">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="postWeight">Post-Peak Weight Multiplier</label>
+              <input type="number" id="postWeight" class="field-input" value="1" step="0.05" min="0" max="2">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="coverageEnabled">Discount Partial-Coverage Runs</label>
+              <input type="number" id="coverageEnabled" class="field-input" value="1" step="1" min="0" max="1">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="exp">Difficulty Exponent (k)</label>
+              <input type="number" id="exp" class="field-input" value="1.2" step="0.1" min="0.5" max="5">
+            </div>
+          </div>
+        </details>
+
+        <div class="consistency-section">
+          <div class="consistency-panel">
+            <h4>Submitted Runs</h4>
+            <div class="hint" style="margin-bottom: 12px;">Enter runs in attempt order. Start % is 0 unless the attempt
+              began from a checkpoint further into the level. End % is capped at 100.</div>
+            <div id="runsContainer"></div>
+            <button class="btn btn-primary" id="addRun" type="button">＋ Add run</button>
+          </div>
+        </div>
+
+        <div class="consistency-result" id="resultBox">
+          <div class="consistency-verdict" id="verdictText">—</div>
+          <div class="consistency-result-sub" id="verdictSub">—</div>
+          <div class="consistency-gates">
+            <div class="consistency-gate">
+              <div class="consistency-gate-name">Gate A — vs Baseline</div>
+              <div class="consistency-gate-status" id="gateAStatus">—</div>
+              <div class="consistency-gate-detail" id="gateADetail">—</div>
+            </div>
+            <div class="consistency-gate">
+              <div class="consistency-gate-name">Gate B — vs Current Achievement</div>
+              <div class="consistency-gate-status" id="gateBStatus">—</div>
+              <div class="consistency-gate-detail" id="gateBDetail">—</div>
+            </div>
+          </div>
+          <table class="consistency-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Order</th>
+                <th>Run</th>
+                <th class="num">Coverage</th>
+                <th class="num">Weight</th>
+                <th class="num">Contribution</th>
+              </tr>
+            </thead>
+            <tbody id="breakdownBody"></tbody>
+            <tbody>
+              <tr class="consistency-totals-row">
+                <td colspan="5">Score</td>
+                <td class="num" id="totalCell">0</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="consistency-note-box">
+          <div><code>1.</code> M = highest submitted run's End %; the attempt that first reached M is the “peak run”
+          </div>
+          <div><code>2.</code> Qualifying runs = any run with End % ≥ M × (1 − Tolerance/100), everything else discarded
+          </div>
+          <div><code>3.</code> If fewer than 2 runs qualify → Score = M × peak coverage (if coverage enabled, else just
+            M) – a personal best, not a consistency claim</div>
+          <div><code>4.</code> Coverage = (End − Start) / End (0–1). Discounted if enabled – applies to the peak run
+            too.</div>
+          <div><code>5.</code> Otherwise, for each other qualifying run: contribution = Weight × (run/M)^k ×
+            decay^(rank−2) × orderFactor × coverage</div>
+          <div><code>6.</code> Order factor = Pre-Peak Multiplier if before peak, Post-Peak Multiplier if at/after it
+          </div>
+          <div><code>7.</code> Score = peak contribution + Σ other contributions</div>
+          <div><code>8.</code> Combined Level Factor = product of (difficulty/100)^(coverage/100) for each segment</div>
+          <div><code>9.</code> Gate A: Score ≥ Baseline × (1 + Margin/100)^k × Combined Level Factor</div>
+          <div><code>10.</code> Gate B: Score > Current Achievement Score</div>
+          <div><code>11.</code> Accepted only if both gates pass</div>
+        </div>
+      </section>
+    </div>
+
     <div id="rankings-tab" class="tab-content">
       <section class="rankings-section">
         <div class="rankings-header">
@@ -300,7 +439,8 @@
         </div>
         <div class="field-group">
           <label class="field-label" for="modal-listid">Original List Name</label>
-          <input type="text" id="modal-listid" class="field-input" autocomplete="off" placeholder="Optional reference name">
+          <input type="text" id="modal-listid" class="field-input" autocomplete="off"
+            placeholder="Optional reference name">
         </div>
         <div class="field-group">
         </div>
@@ -454,6 +594,29 @@
     </div>
   </div>
 
+  <div id="columns-modal" class="modal-overlay column-manager-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Column Manager</h3>
+        <button class="modal-close" id="columns-modal-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="column-manager-panel">
+          <div class="column-manager-add-row">
+            <select id="column-add-select" class="field-input">
+              <option value="">Add a column…</option>
+            </select>
+            <button id="column-add-btn" class="btn btn-primary">Add Column</button>
+          </div>
+          <div id="columns-list" class="column-manager-list"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="columns-close">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Configuration Template Selection Modal - Hidden: Using minimal setup by default -->
 
   <div id="update-preview-modal" class="modal-overlay hidden">
@@ -476,15 +639,25 @@
 
   <div id="toast"></div>
 
-  <script type="module" src="state.js"></script>
-  <script type="module" src="logic.js"></script>
-  <script type="module" src="render.utils.js"></script>
-  <script type="module" src="render.rows.js"></script>
-  <script type="module" src="render.split.js"></script>
-  <script type="module" src="render.modals.js"></script>
-  <script type="module" src="render.table.js"></script>
-  <script type="module" src="render.main.js"></script>
-  <script type="module" src="init.js"></script>
+  <script type="module" src="state.js?v=20260803"></script>
+  <script type="module" src="state.utils.js?v=20260803"></script>
+  <script type="module" src="state.levels.js?v=20260803"></script>
+  <script type="module" src="state.config.js?v=20260803"></script>
+  <script type="module" src="state.fields.js?v=20260803"></script>
+  <script type="module" src="state.settings.js?v=20260803"></script>
+  <script type="module" src="state.columns.js?v=20260803"></script>
+  <script type="module" src="state.custom.js?v=20260803"></script>
+  <script type="module" src="state.schema.js?v=20260803"></script>
+
+  <script type="module" src="logic.js?v=20260803"></script>
+  <script type="module" src="render.utils.js?v=20260803"></script>
+  <script type="module" src="render.rows.js?v=20260803"></script>
+  <script type="module" src="render.split.js?v=20260803"></script>
+  <script type="module" src="render.modals.js?v=20260803"></script>
+  <script type="module" src="render.table.js?v=20260803"></script>
+  <script type="module" src="render.main.js?v=20260803"></script>
+  <script type="module" src="init.js?v=20260803"></script>
+  <script src="consistency.js?v=20260803"></script>
 </body>
 
 </html>
