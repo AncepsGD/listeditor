@@ -222,7 +222,6 @@
     <div id="consistency-tab" class="tab-content">
       <section class="consistency-page">
         <div class="consistency-hero">
-          <div class="consistency-eyebrow">Tooling</div>
           <h3>Consistency Validation Checker</h3>
           <p>Evaluate whether consistency achievements are valid for the set baseline.</p>
         </div>
@@ -233,7 +232,7 @@
               <h4>Standard Execution</h4>
               <div class="field-group">
                 <label class="field-label" for="baseline">Baseline %</label>
-                <input type="number" id="baseline" class="field-input" value="175" step="1">
+                <input type="number" id="baseline" class="field-input" value="100" step="1">
               </div>
             </div>
             <div class="consistency-panel">
@@ -265,12 +264,13 @@
               <input type="number" id="margin" class="field-input" value="10" step="1">
             </div>
             <div class="field-group">
-              <label class="field-label" for="tolerance">Tolerance (% of peak)</label>
-              <input type="number" id="tolerance" class="field-input" value="50" step="1" min="0" max="100">
+              <label class="field-label" for="fillerMax">Max Filler Allowed (%)</label>
+              <input type="number" id="fillerMax" class="field-input" value="10" step="0.1" min="0">
+              <div class="hint">Absolute allowed gap from peak treated as filler</div>
             </div>
             <div class="field-group">
               <label class="field-label" for="weight">Weight per qualifying run</label>
-              <input type="number" id="weight" class="field-input" value="200" step="0.5">
+              <input type="number" id="weight" class="field-input" value="7.5" step="0.5">
             </div>
             <div class="field-group">
               <label class="field-label" for="decay">Decay (rank 3+)</label>
@@ -289,8 +289,22 @@
               <input type="number" id="coverageEnabled" class="field-input" value="1" step="1" min="0" max="1">
             </div>
             <div class="field-group">
-              <label class="field-label" for="exp">Difficulty Exponent (k)</label>
-              <input type="number" id="exp" class="field-input" value="1.2" step="0.1" min="0.5" max="5">
+              <label class="field-label" for="exp">Difficulty Exponent (K)</label>
+              <input type="number" id="exp" class="field-input" value="2.4" step="0.1" min="0.5" max="5">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="fillerThreshold">Filler Threshold (% of peak)</label>
+              <input type="number" id="fillerThreshold" class="field-input" value="60" step="1" min="0" max="100">
+              <div class="hint">Runs below this % of the peak count as filler</div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="fillerLimitPercent">Max Filler Allowed (% of runs)</label>
+              <input type="number" id="fillerLimitPercent" class="field-input" value="26" step="1" min="0" max="100">
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="fillerDecay">Filler Penalty Decay</label>
+              <input type="number" id="fillerDecay" class="field-input" value="0.85" step="0.01" min="0" max="1">
+              <div class="hint">Score is multiplied by this per excess filler run</div>
             </div>
           </div>
         </details>
@@ -319,6 +333,11 @@
               <div class="consistency-gate-status" id="gateBStatus">—</div>
               <div class="consistency-gate-detail" id="gateBDetail">—</div>
             </div>
+            <div class="consistency-gate">
+              <div class="consistency-gate-name">Filler Penalty</div>
+              <div class="consistency-gate-status" id="fillerStatus">—</div>
+              <div class="consistency-gate-detail" id="fillerDetail">—</div>
+            </div>
           </div>
           <table class="consistency-table">
             <thead>
@@ -344,7 +363,7 @@
         <div class="consistency-note-box">
           <div><code>1.</code> M = highest submitted run's End %; the attempt that first reached M is the “peak run”
           </div>
-          <div><code>2.</code> Qualifying runs = any run with End % ≥ M × (1 − Tolerance/100), everything else discarded
+          <div><code>2.</code> Qualifying runs = any run with End % ≥ M × (Filler Threshold/100); low-value filler runs still count toward penalty
           </div>
           <div><code>3.</code> If fewer than 2 runs qualify → Score = M × peak coverage (if coverage enabled, else just
             M) – a personal best, not a consistency claim</div>
@@ -617,8 +636,6 @@
     </div>
   </div>
 
-  <!-- Configuration Template Selection Modal - Hidden: Using minimal setup by default -->
-
   <div id="update-preview-modal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
@@ -627,7 +644,6 @@
       </div>
       <div class="modal-body">
         <div data-update-content style="max-height: 300px; overflow-y: auto; font-size: 0.9em; line-height: 1.5;">
-          <!-- Updated preview content will be inserted here -->
         </div>
       </div>
       <div class="modal-footer">

@@ -110,7 +110,7 @@ function initConsistencyEvaluator() {
   function calculate() {
     const baseline = parseFloat(getInput('baseline').value) || 0;
     const margin = parseFloat(getInput('margin').value) || 0;
-    const tolerancePercent = parseFloat(getInput('tolerance').value) || 0;
+    const fillerMax = parseFloat(getInput('fillerMax')?.value) || 0;
     const currentScore = parseFloat(getInput('currentScore').value) || 0;
     const weight = parseFloat(getInput('weight').value) || 0;
     const decay = Math.min(1, Math.max(0, parseFloat(getInput('decay').value)));
@@ -118,6 +118,9 @@ function initConsistencyEvaluator() {
     const postWeight = parseFloat(getInput('postWeight').value) || 0;
     const coverageEnabled = (parseFloat(getInput('coverageEnabled').value) || 0) >= 1;
     const k = Math.max(0.5, Math.min(5, parseFloat(getInput('exp').value) || 1));
+    const fillerThreshold = Math.max(0, Math.min(100, parseFloat(getInput('fillerThreshold')?.value) || 0));
+    const fillerLimitPercent = Math.max(0, Math.min(100, parseFloat(getInput('fillerLimitPercent')?.value) || 0));
+    const fillerDecay = Math.min(1, Math.max(0, parseFloat(getInput('fillerDecay')?.value ?? 1)));
 
     let combinedLevelFactor = 1;
     state.listSegments.forEach(segment => {
@@ -141,49 +144,74 @@ function initConsistencyEvaluator() {
     const M = sorted.length ? sorted[0].end : 0;
     const peakOrigIndex = sorted.length ? sorted[0].origIndex : -1;
 
-    const threshold = M * (1 - tolerancePercent / 100);
+    const fillerFloor = M * (fillerThreshold / 100);
 
     const breakdown = sorted.map((run, idx) => {
       const rank = idx + 1;
-      const qualifies = run.end >= threshold;
       const isPeak = rank === 1;
       const order = isPeak ? 'peak' : (run.origIndex < peakOrigIndex ? 'pre' : 'post');
+      const fillerGap = Math.max(0, M - run.end);
+      const fillerOk = fillerGap <= fillerMax;
+      const countsForScore = run.end > 0;
+      const countsAsQualifying = run.end >= fillerFloor || run.isPeak;
+      const isLowValueFiller = !isPeak && M > 0 && run.end < fillerFloor;
       return {
         rank,
         start: run.start,
         end: run.end,
         coverage: run.coverage,
         origIndex: run.origIndex,
-        qualifies,
+        countsForScore,
+        countsAsQualifying,
         isPeak,
-        order
+        order,
+        fillerGap,
+        fillerOk,
+        isLowValueFiller
       };
     });
 
-    const n = breakdown.filter(run => run.qualifies).length;
+    const n = breakdown.filter(run => run.countsAsQualifying).length;
 
     const contributions = breakdown.map(run => {
       if (run.isPeak) {
         const peakContribution = coverageEnabled ? M * run.coverage : M;
         return { ...run, w: 1, contribution: peakContribution };
       }
-      if (!run.qualifies || n < 2) return { ...run, w: 0, contribution: 0 };
+      if (!run.countsForScore) return { ...run, w: 0, contribution: 0 };
       const orderFactor = run.order === 'pre' ? preWeight : postWeight;
       const difficultyFactor = Math.pow(run.end / M, k);
-      const w = weight * difficultyFactor * Math.pow(decay, Math.max(0, run.rank - 2)) * orderFactor * run.coverage;
-      return { ...run, w, contribution: w };
+      const baseContribution = weight * difficultyFactor * Math.pow(decay, Math.max(0, run.rank - 2)) * orderFactor * run.coverage;
+      const runRatio = M > 0 ? run.end / M : 0;
+      let contribution;
+      if (runRatio <= 0.10) {
+        contribution = 0;
+      } else if (runRatio <= 0.59) {
+        contribution = 0;
+      } else if (runRatio < 0.69) {
+        contribution = baseContribution * 0.3;
+      } else {
+        contribution = baseContribution;
+      }
+      return { ...run, w: contribution, contribution, isAutoFailFiller: runRatio > 0.10 && runRatio <= 0.59 };
     });
 
     const peakContribution = contributions.find(run => run.isPeak)?.contribution || 0;
-    const score = n < 2 ?
-      peakContribution :
-      peakContribution + contributions.filter(run => !run.isPeak).reduce((sum, run) => sum + run.contribution, 0);
+    const rawScore = peakContribution + contributions.filter(run => !run.isPeak).reduce((sum, run) => sum + run.contribution, 0);
+    const hasAutoFailFiller = contributions.some(run => run.isAutoFailFiller);
+
+    const totalRuns = state.runs.length;
+    const fillerCount = breakdown.filter(run => run.isLowValueFiller).length;
+    const allowedFillerCount = Math.max(0, Math.ceil(totalRuns * (fillerLimitPercent / 100)));
+    const excessFiller = Math.max(0, fillerCount - allowedFillerCount);
+    const fillerMultiplier = Math.pow(fillerDecay, excessFiller);
+    const score = rawScore * fillerMultiplier;
 
     const marginFactor = Math.pow(1 + margin / 100, k);
     const required = baseline * marginFactor * combinedLevelFactor;
     const gateA = score >= required && required > 0;
     const gateB = currentScore <= 0 || score > currentScore;
-    const passed = gateA && gateB;
+    const passed = !hasAutoFailFiller && gateA && gateB;
 
     const resultBox = getInput('resultBox');
     const verdictText = getInput('verdictText');
@@ -195,9 +223,12 @@ function initConsistencyEvaluator() {
       verdictText.textContent = passed ? 'ACCEPTED' : 'REJECTED';
     }
     if (verdictSub) {
-      verdictSub.textContent = n < 2 ?
-        `Only ${n} run within tolerance of the peak (${M.toFixed(1)}%) — treated as a single personal best, not a consistency claim.` :
-        `${n} runs within tolerance of the peak (${M.toFixed(1)}%). Score ${score.toFixed(1)}%.`;
+      const fillerNote = excessFiller > 0 ?
+        ` ${fillerCount} filler runs (${excessFiller.toFixed(1)} over the ${allowedFillerCount.toFixed(1)} allowed) cut the score by ${((1 - fillerMultiplier) * 100).toFixed(1)}%.` :
+        '';
+      verdictSub.textContent = (n < 2 ?
+        `Only ${n} run qualifies — treated as a single personal best, not a consistency claim.` :
+        `${n} runs qualify. Score ${score.toFixed(1)}%.`) + fillerNote;
     }
 
     const gateAStatus = getInput('gateAStatus');
@@ -222,23 +253,38 @@ function initConsistencyEvaluator() {
         `${score.toFixed(1)}% vs current ${currentScore.toFixed(1)}%`;
     }
 
+    const fillerStatus = getInput('fillerStatus');
+    if (fillerStatus) {
+      fillerStatus.textContent = excessFiller > 0 ? 'PENALTY' : 'OK';
+      fillerStatus.className = 'consistency-gate-status ' + (excessFiller > 0 ? 'fail' : 'pass');
+    }
+    const fillerDetail = getInput('fillerDetail');
+    if (fillerDetail) {
+      fillerDetail.textContent = `${fillerCount}/${totalRuns} runs under ${fillerThreshold.toFixed(0)}% of peak (allowed: ${allowedFillerCount.toFixed(1)}), ×${fillerMultiplier.toFixed(3)} applied`;
+    }
+
     const body = getInput('breakdownBody');
     if (body) {
       body.innerHTML = '';
       contributions.forEach(row => {
         const tr = document.createElement('tr');
-        if (!row.qualifies) tr.classList.add('discarded');
         const orderLabel = row.isPeak ? 'peak' : row.order;
-        const runLabel = row.start > 0 ?
+        let runLabel = row.start > 0 ?
           `${row.start.toFixed(0)}–${row.end.toFixed(0)}` :
           `${row.end.toFixed(0)}%`;
+        if (!row.isPeak && row.fillerOk && row.fillerGap > 0) {
+          runLabel += ` (filler ${row.fillerGap.toFixed(1)}%)`;
+        }
+        if (row.isLowValueFiller) {
+          runLabel += ' (low-value filler)';
+        }
         tr.innerHTML = `
           <td>#${row.rank}</td>
           <td>${orderLabel}</td>
           <td>${runLabel}</td>
           <td class="num">${(row.coverage * 100).toFixed(0)}%</td>
-          <td class="num">${row.qualifies ? row.w.toFixed(2) : '—'}</td>
-          <td class="num">${row.qualifies ? row.contribution.toFixed(1) + '%' : 'discarded'}</td>
+          <td class="num">${row.countsForScore ? row.w.toFixed(2) : '0.00'}</td>
+          <td class="num">${row.countsForScore ? row.contribution.toFixed(1) + '%' : '0.0%'}</td>
         `;
         body.appendChild(tr);
       });
@@ -262,7 +308,7 @@ function initConsistencyEvaluator() {
     calculate();
   });
 
-  ['baseline', 'margin', 'tolerance', 'currentScore', 'weight', 'decay', 'preWeight', 'postWeight', 'coverageEnabled', 'exp']
+  ['baseline', 'margin', 'fillerMax', 'currentScore', 'weight', 'decay', 'preWeight', 'postWeight', 'coverageEnabled', 'exp', 'fillerThreshold', 'fillerLimitPercent', 'fillerDecay']
     .forEach(id => {
       getInput(id)?.addEventListener('input', calculate);
     });
