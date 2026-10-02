@@ -1,5 +1,5 @@
 import { state, escHtml, makeLevelId, findDuplicateLevel, detectColumnsFromLevels, addDetectedColumn, removeDetectedColumn, FIELD_ID_SET } from './state.js';
-import { startInsertion, saveSession, isRankedVariant } from './logic.js';
+import { startInsertion, saveSession, isRankedVariant, moveToPosition } from './logic.js';
 import { showToast, deleteLevel, reevaluateRanked, resolveContradiction } from './logic.js';
 import { addCustomValue, removeCustomValue, updateCustomValue, listImportTemplates, saveImportTemplate, loadImportTemplate, deleteImportTemplate } from './state.js';
 
@@ -1264,6 +1264,26 @@ export function submitModal() {
     return;
   }
 
+  const editingLevel = state.modalMode === 'edit' && state.modalLevelId
+    ? state.levelMap.get(state.modalLevelId)
+    : null;
+  const currentRankedIdx = editingLevel
+    ? state.rankedList.findIndex(item => item._id === editingLevel._id)
+    : -1;
+  const rankChanged = editingLevel
+    && Object.prototype.hasOwnProperty.call(data, 'rank')
+    && data.rank !== editingLevel.rank;
+  if (
+    rankChanged
+    && currentRankedIdx !== -1
+    && !isRankedVariant(editingLevel)
+    && data.rank !== null
+    && (!Number.isInteger(data.rank) || data.rank < 1 || data.rank > state.rankedList.length)
+  ) {
+    showToast(`Rank must be a whole number between 1 and ${state.rankedList.length}.`, 'danger');
+    return;
+  }
+
   if (state.modalMode === 'edit' && state.modalLevelId) {
     const level = state.levelMap.get(state.modalLevelId);
     if (level) {
@@ -1287,8 +1307,17 @@ export function submitModal() {
         state.rankedList.push(level);
       }
       detectColumnsFromLevels();
-      saveSession();
-      document.dispatchEvent(new CustomEvent('dl:render'));
+      if (
+        rankChanged
+        && rankedIdx !== -1
+        && !isRankedVariant(level)
+        && Number.isInteger(level.rank)
+      ) {
+        moveToPosition(rankedIdx, level.rank - 1);
+      } else {
+        saveSession();
+        document.dispatchEvent(new CustomEvent('dl:render'));
+      }
       showToast(`"${name}" updated`);
     }
   } else if (state.modalMode === 'add') {
