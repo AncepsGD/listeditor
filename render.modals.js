@@ -1,11 +1,35 @@
-import { state, escHtml, makeLevelId, getCustomField, findDuplicateLevel } from './state.js';
-import { startInsertion, saveSession } from './logic.js';
+import { state, escHtml, makeLevelId, findDuplicateLevel, detectColumnsFromLevels, addDetectedColumn, removeDetectedColumn, FIELD_ID_SET } from './state.js';
+import { startInsertion, saveSession, isRankedVariant } from './logic.js';
 import { showToast, deleteLevel, reevaluateRanked, resolveContradiction } from './logic.js';
-import { thumbUrl, gdThumbUrl } from './state.js';
-import { setThumbElement } from './render.utils.js';
 import { addCustomValue, removeCustomValue, updateCustomValue, listImportTemplates, saveImportTemplate, loadImportTemplate, deleteImportTemplate } from './state.js';
 
 let _importPreviewData = { records: [], schema: [], type: 'main' };
+const MODAL_INTERNAL_FIELDS = new Set(['_id', 'pending', 'lowConfidence', 'confidence', 'lastEdited', 'customValues']);
+const MODAL_VALUE_TYPES = ['text', 'number', 'boolean', 'object', 'array', 'null'];
+
+function isManagedField(key) {
+  return MODAL_INTERNAL_FIELDS.has(key);
+}
+
+function createNewLevelDraft() {
+  const fieldKeys = new Set(['name']);
+  state.rawLevels.forEach(level => {
+    Object.keys(level)
+      .filter(key => !isManagedField(key))
+      .forEach(key => fieldKeys.add(key));
+  });
+
+  const values = Object.create(null);
+  const types = Object.create(null);
+  fieldKeys.forEach(key => {
+    const type = inferExpectedFieldType(
+      state.rawLevels.filter(level => Object.prototype.hasOwnProperty.call(level, key)).map(level => level[key])
+    );
+    types[key] = type;
+    values[key] = createBlankValue(type);
+  });
+  return { values, types };
+}
 
 export function openEditModal(levelId) {
   const level = state.levelMap.get(levelId);
@@ -13,35 +37,39 @@ export function openEditModal(levelId) {
 
   state.modalMode = 'edit';
   state.modalLevelId = levelId;
+  state.modalOriginalKeys = Object.keys(level).filter(key => !isManagedField(key));
 
-  document.getElementById('modal-title').textContent = 'Edit Level';
-  document.getElementById('modal-name').value = level.name || '';
-  document.getElementById('modal-creators').value = level.creators || '';
-  document.getElementById('modal-video').value = level.showcaseVideo || '';
-  document.getElementById('modal-listid').value = level.originalName ?? (level.id != null ? String(level.id) : '');
-  const editNotesInput = document.getElementById('modal-notes');
-  if (editNotesInput) editNotesInput.value = level.notes || '';
-  document.getElementById('modal-victors').value = level.victors ? JSON.stringify(level.victors, null, 2) : '';
+  document.getElementById('modal-title').textContent = `Editing: ${level.name || 'Untitled'}`;
+  renderModalFields(level);
+  const formHint = document.querySelector('.editor-form-hint');
+  if (formHint) {
+    formHint.textContent = state.lastImportWasArray
+      ? 'Edit every value, including nested object properties and array items. Values retain their JSON types.'
+      : 'Edit every value, including nested object properties and array items. Values retain their JSON types. Dragging a ranked level updates its rank.';
+  }
   const editStatusGroup = document.getElementById('modal-status-group');
   if (editStatusGroup) editStatusGroup.style.display = 'none';
 
-  updateModalThumb();
   document.getElementById('level-modal').classList.add('active');
-  setTimeout(() => document.getElementById('modal-name').focus(), 50);
+  setTimeout(() => document.querySelector('#modal-fields [data-field-key="name"] .structured-value-editor input, #modal-fields [data-field-key="name"] .structured-value-editor textarea, #modal-fields [data-field-key="name"] .structured-value-editor select')?.focus(), 50);
 }
 
 export function openAddModal() {
   state.modalMode = 'add';
   state.modalLevelId = null;
+  state.modalOriginalKeys = [];
 
   document.getElementById('modal-title').textContent = 'Add New Level';
-  document.getElementById('modal-name').value = '';
-  document.getElementById('modal-creators').value = '';
-  document.getElementById('modal-video').value = '';
-  document.getElementById('modal-listid').value = '';
-  const addNotesInput = document.getElementById('modal-notes');
-  if (addNotesInput) addNotesInput.value = '';
-  document.getElementById('modal-victors').value = '';
+  const draft = createNewLevelDraft();
+  renderModalFields(draft.values, draft.types);
+  const formHint = document.querySelector('.editor-form-hint');
+  if (formHint) {
+    formHint.textContent = state.lastImportWasArray
+      ? 'Edit every value, including nested object properties and array items. Values retain their JSON types.'
+      : 'Edit every value, including nested object properties and array items. Values retain their JSON types. Dragging a ranked level updates its rank.';
+  }
+  const newFieldName = document.getElementById('modal-new-field-name');
+  if (newFieldName) newFieldName.value = '';
   const addStatusGroup = document.getElementById('modal-status-group');
   if (addStatusGroup) addStatusGroup.style.display = 'block';
 
@@ -50,9 +78,1136 @@ export function openAddModal() {
   );
   if (defaultStatusRadio) defaultStatusRadio.checked = true;
 
-  updateModalThumb();
   document.getElementById('level-modal').classList.add('active');
-  setTimeout(() => document.getElementById('modal-name').focus(), 50);
+  setTimeout(() => document.querySelector('#modal-fields [data-field-key="name"] .structured-value-editor input, #modal-fields [data-field-key="name"] .structured-value-editor textarea, #modal-fields [data-field-key="name"] .structured-value-editor select')?.focus(), 50);
+}
+
+function inferModalValueType(value) {
+  if (value === null) return 'null';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'number') return 'number';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'object') return 'object';
+  return 'text';
+}
+
+function inferExpectedFieldType(values) {
+  const presentValues = values.filter(value => value !== undefined && value !== '');
+  const typedValues = presentValues.filter(value => value !== null);
+  if (typedValues.length === 0) {
+    return presentValues.length ? 'null' : 'text';
+  }
+
+  const counts = new Map();
+  typedValues.forEach(value => {
+    const type = inferModalValueType(value);
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  });
+  return typedValues
+    .map(inferModalValueType)
+    .reduce((mostCommon, type) =>
+      counts.get(type) > counts.get(mostCommon) ? type : mostCommon
+    );
+}
+
+function createBlankValue(type) {
+  if (type === 'object') return {};
+  if (type === 'array') return [];
+  return null;
+}
+
+function isEmptyFieldValue(value) {
+  return value === null || value === undefined || value === '';
+}
+
+function getExpectedFieldType(key, currentLevel) {
+  const peerValues = state.rawLevels
+    .filter(level => level !== currentLevel && Object.prototype.hasOwnProperty.call(level, key))
+    .map(level => level[key]);
+  const expectedType = inferExpectedFieldType(peerValues);
+  return expectedType === 'text' && peerValues.length === 0
+    ? inferModalValueType(currentLevel[key])
+    : expectedType;
+}
+
+function isStructuredValueType(type) {
+  return type === 'object' || type === 'array';
+}
+
+function findTextExamples(fieldKey) {
+  const examples = new Set();
+  const findInValue = value => {
+    if (!value || typeof value !== 'object') return '';
+    if (!Array.isArray(value) && Object.hasOwn(value, fieldKey)) {
+      const candidate = value[fieldKey];
+      if (typeof candidate === 'string' && candidate.trim()) examples.add(candidate.trim());
+    }
+    for (const child of Object.values(value)) {
+      findInValue(child);
+    }
+  };
+
+  state.rawLevels.forEach(findInValue);
+  return [...examples];
+}
+
+function findNumberExamples(fieldKey) {
+  const examples = new Set();
+  const findInValue = value => {
+    if (!value || typeof value !== 'object') return;
+    if (!Array.isArray(value) && Object.hasOwn(value, fieldKey)) {
+      const candidate = value[fieldKey];
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) examples.add(candidate);
+    }
+    Object.values(value).forEach(findInValue);
+  };
+
+  state.rawLevels.forEach(findInValue);
+  return [...examples];
+}
+
+function setRandomNumberPlaceholder(control, examples) {
+  if (!examples.length) return;
+  const example = examples[Math.floor(Math.random() * examples.length)];
+  control.placeholder = `e.g. ${example}`;
+}
+
+function createValuePickerButton(fieldKey) {
+  const button = document.createElement('button');
+  button.classList.add('btn', 'btn-xs', 'editor-value-picker-button');
+  button.type = 'button';
+  button.innerHTML = '<i class="fa-solid fa-list" aria-hidden="true"></i>';
+  button.title = `Choose an existing value for ${fieldKey}`;
+  button.setAttribute('aria-label', `Choose an existing value for ${fieldKey}`);
+  return button;
+}
+
+function configureValuePicker(button, select, fieldKey, control) {
+  const isEnabled = () => state.settings.valuePickerFields?.[fieldKey] === true;
+  const updatePickerState = () => {
+    select.hidden = !isEnabled();
+    button.setAttribute('aria-pressed', String(isEnabled()));
+    button.setAttribute('aria-label', `${isEnabled() ? 'Hide' : 'Show'} existing values for ${fieldKey}`);
+    button.title = `${isEnabled() ? 'Hide' : 'Show'} existing values for ${fieldKey}`;
+  };
+
+  updatePickerState();
+  button.addEventListener('click', () => {
+    if (!state.settings.valuePickerFields || typeof state.settings.valuePickerFields !== 'object') {
+      state.settings.valuePickerFields = {};
+    }
+    state.settings.valuePickerFields[fieldKey] = !isEnabled();
+    persistModalSettings();
+    updatePickerState();
+    if (isEnabled()) select.focus();
+  });
+  select.addEventListener('change', () => {
+    if (!select.value) return;
+    control.value = select.value;
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    select.value = '';
+  });
+}
+
+function addExistingValuesPicker(control, fieldKey, examples) {
+  if (!examples.length || !(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) {
+    return control;
+  }
+
+  const picker = document.createElement('div');
+  picker.className = 'editor-value-picker';
+  const button = createValuePickerButton(fieldKey);
+
+  const select = document.createElement('select');
+  select.className = 'field-input editor-value-picker-select';
+  select.hidden = true;
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Choose an existing value…';
+  select.appendChild(placeholder);
+  examples.forEach(example => {
+    const option = document.createElement('option');
+    option.value = example;
+    option.textContent = example.length > 100 ? `${example.slice(0, 97)}…` : example;
+    option.title = example;
+    select.appendChild(option);
+  });
+
+  configureValuePicker(button, select, fieldKey, control);
+
+  picker.append(control, button, select);
+  return picker;
+}
+
+function findArrayItemTextExamples(fieldKey) {
+  const examples = new Set();
+  const visit = (value, currentKey = '') => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      if (currentKey === fieldKey) {
+        value.forEach(item => {
+          if (typeof item === 'string' && item.trim()) examples.add(item.trim());
+        });
+      }
+      value.forEach(item => visit(item));
+      return;
+    }
+    Object.entries(value).forEach(([key, child]) => visit(child, key));
+  };
+
+  state.rawLevels.forEach(level => visit(level));
+  return [...examples];
+}
+
+function findArrayItemNumberExamples(fieldKey) {
+  const examples = new Set();
+  const visit = (value, currentKey = '') => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      if (currentKey === fieldKey) {
+        value.forEach(item => {
+          if (typeof item === 'number' && Number.isFinite(item)) examples.add(item);
+        });
+      }
+      value.forEach(item => visit(item));
+      return;
+    }
+    Object.entries(value).forEach(([key, child]) => visit(child, key));
+  };
+
+  state.rawLevels.forEach(level => visit(level));
+  return [...examples];
+}
+
+function addNumberValuesPicker(control, fieldKey, examples) {
+  if (!examples.length || !(control instanceof HTMLInputElement)) return control;
+
+  const picker = document.createElement('div');
+  picker.className = 'editor-value-picker';
+  const button = createValuePickerButton(fieldKey);
+
+  const select = document.createElement('select');
+  select.className = 'field-input editor-value-picker-select';
+  select.hidden = true;
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Choose an existing value…';
+  select.appendChild(placeholder);
+  examples.forEach(example => {
+    const option = document.createElement('option');
+    option.value = String(example);
+    option.textContent = String(example);
+    select.appendChild(option);
+  });
+
+  configureValuePicker(button, select, fieldKey, control);
+
+  picker.append(control, button, select);
+  return picker;
+}
+
+function createBlankObjectTemplate(objectEditors) {
+  const propertiesByEditor = objectEditors.map(editor =>
+    Array.from(editor.querySelectorAll(':scope > .structured-entries > .object-entry'))
+      .map(entry => ({
+        key: entry.querySelector('.structured-key').value.trim(),
+        editor: entry.querySelector('.structured-entry-value > .structured-value-editor'),
+      }))
+      .filter(property => property.key)
+  );
+  const keys = new Set(propertiesByEditor.flatMap(properties =>
+    properties.map(property => property.key)
+  ));
+
+  const value = {};
+  const types = {};
+  [...keys].forEach(key => {
+    const propertyEditors = propertiesByEditor
+      .flat()
+      .filter(property => property.key === key)
+      .map(property => property.editor);
+    const propertyType = getMostCommonArrayItemType(propertyEditors.map(editor => editor.dataset.valueType));
+    types[key] = propertyType;
+    if (propertyType === 'object') {
+      const nested = createBlankObjectTemplate(propertyEditors.filter(editor => editor.dataset.valueType === 'object'));
+      value[key] = nested.value;
+      types[key] = { type: propertyType, properties: nested.types };
+    } else if (propertyType === 'array') {
+      value[key] = [];
+      types[key] = { type: propertyType };
+    } else {
+      value[key] = propertyType === 'text' ? '' : null;
+      types[key] = { type: propertyType };
+    }
+  });
+  return { value, types };
+}
+
+function findArrayExamples(fieldKey) {
+  const arrays = [];
+  const visit = value => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    Object.entries(value).forEach(([key, child]) => {
+      if (key === fieldKey && Array.isArray(child)) arrays.push(child);
+      visit(child);
+    });
+  };
+  state.rawLevels.forEach(visit);
+  return arrays;
+}
+
+function findObjectExamples(fieldKey) {
+  const objects = [];
+  const visit = value => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    Object.entries(value).forEach(([key, child]) => {
+      if (key === fieldKey && child && typeof child === 'object' && !Array.isArray(child)) {
+        objects.push(child);
+      }
+      visit(child);
+    });
+  };
+  state.rawLevels.forEach(visit);
+  return objects;
+}
+
+function createBlankObjectValueTemplate(objects) {
+  const keys = new Set(objects.flatMap(object => Object.keys(object)));
+  const value = {};
+  const types = {};
+  [...keys].forEach(key => {
+    const values = objects
+      .filter(object => Object.prototype.hasOwnProperty.call(object, key))
+      .map(object => object[key]);
+    const type = inferExpectedFieldType(values);
+    if (type === 'object') {
+      const nested = createBlankObjectValueTemplate(values.filter(value =>
+        value && typeof value === 'object' && !Array.isArray(value)
+      ));
+      value[key] = nested.value;
+      types[key] = { type, properties: nested.types };
+    } else if (type === 'array') {
+      value[key] = [];
+      types[key] = { type };
+    } else {
+      value[key] = type === 'text' ? '' : null;
+      types[key] = { type };
+    }
+  });
+  return { value, types };
+}
+
+function getMostCommonArrayItemType(types) {
+  const counts = new Map();
+  types.forEach(type => {
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  });
+  return types.reduce((mostCommon, type) =>
+    counts.get(type) > counts.get(mostCommon) ? type : mostCommon
+  );
+}
+
+function getDefaultArrayItemTemplate(fieldKey) {
+  const itemValues = findArrayExamples(fieldKey).flat();
+  if (!itemValues.length) return null;
+
+  const type = getMostCommonArrayItemType(itemValues.map(inferModalValueType));
+  if (type === 'object') {
+    const template = createBlankObjectValueTemplate(itemValues.filter(value =>
+      value && typeof value === 'object' && !Array.isArray(value)
+    ));
+    return {
+      ...template,
+      type,
+    };
+  }
+  if (type === 'array') return { value: [], type };
+  if (type === 'boolean' || type === 'number' || type === 'null') {
+    return { value: null, type };
+  }
+  return { value: '', type: 'text' };
+}
+
+function renumberArrayItems(entries) {
+  Array.from(entries.children)
+    .filter(entry => entry.classList.contains('array-entry'))
+    .forEach((entry, index) => {
+      const label = entry.querySelector(':scope > .structured-entry-header > .structured-item-label');
+      if (label) label.textContent = `Item ${index + 1}`;
+    });
+}
+
+function updateModalFieldCount() {
+  const fields = document.getElementById('modal-fields');
+  const count = document.getElementById('modal-field-count');
+  if (!fields || !count) return;
+  const fieldCount = fields.children.length;
+  count.textContent = `${fieldCount} field${fieldCount === 1 ? '' : 's'}`;
+}
+
+function formatFieldLabel(key) {
+  const label = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  const aliases = { id: 'ID', tps: 'TPS', url: 'URL' };
+  return label.split(/\s+/).map(word => aliases[word.toLowerCase()] || word[0].toUpperCase() + word.slice(1)).join(' ');
+}
+
+function createValueTypeSelect(value, onChange, valueType = inferModalValueType(value)) {
+  const select = document.createElement('select');
+  select.className = 'editor-field-type';
+  MODAL_VALUE_TYPES.forEach(type => {
+    const option = document.createElement('option');
+    option.value = type;
+    option.textContent = type === 'object' ? 'Object' : type === 'array' ? 'Array' : type;
+    select.appendChild(option);
+  });
+  select.value = valueType;
+  select.addEventListener('change', () => onChange(select.value));
+  return select;
+}
+
+function makeFieldControl(type, value, fieldKey) {
+  if (type === 'null') {
+    const note = document.createElement('div');
+    note.className = 'editor-null-value';
+    note.textContent = 'null';
+    return note;
+  }
+  if (type === 'boolean') {
+    const select = document.createElement('select');
+    select.className = 'field-input';
+    const emptyOption = document.createElement('option');
+    emptyOption.value = '';
+    emptyOption.textContent = '—';
+    select.appendChild(emptyOption);
+    [['true', 'True'], ['false', 'False']].forEach(([optionValue, label]) => {
+      const option = document.createElement('option');
+      option.value = optionValue;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+    select.value = value === true ? 'true' : value === false ? 'false' : '';
+    return select;
+  }
+
+  const useTextarea = type === 'text' && typeof value === 'string' && /[\r\n]/.test(value);
+  const control = useTextarea ? document.createElement('textarea') : document.createElement('input');
+  const examples = type === 'text' && fieldKey ? findTextExamples(fieldKey) : [];
+  const numberExamples = type === 'number' && fieldKey ? findNumberExamples(fieldKey) : [];
+  control.className = useTextarea ? 'field-input field-textarea editor-string-value' : 'field-input';
+  if (type === 'number') {
+    control.type = 'number';
+    control.step = 'any';
+    control.value = typeof value === 'number' ? String(value) : '';
+    setRandomNumberPlaceholder(control, numberExamples);
+  } else {
+    control.type = 'text';
+    control.value = typeof value === 'string' ? value : '';
+    if (examples.length) {
+      const example = examples[Math.floor(Math.random() * examples.length)];
+      control.placeholder = `e.g. ${example.length > 80 ? `${example.slice(0, 77)}…` : example}`;
+    }
+  }
+  if (examples.length) return addExistingValuesPicker(control, fieldKey, examples);
+  return numberExamples.length ? addNumberValuesPicker(control, fieldKey, numberExamples) : control;
+}
+
+function getStructuredEditorPath(rootEditor, targetEditor) {
+  const path = [];
+  let currentEditor = targetEditor;
+  while (currentEditor && currentEditor !== rootEditor) {
+    const entry = currentEditor.parentElement?.parentElement;
+    if (!entry?.classList.contains('structured-entry')) return null;
+
+    if (entry.classList.contains('object-entry')) {
+      const key = entry.querySelector(':scope > .structured-entry-header > .structured-key')?.value.trim();
+      if (!key) return null;
+      path.push({ type: 'property', key });
+    } else if (entry.classList.contains('array-entry')) {
+      path.push({ type: 'item' });
+    } else {
+      return null;
+    }
+    currentEditor = entry.parentElement?.parentElement;
+  }
+  return currentEditor === rootEditor ? path.reverse() : null;
+}
+
+function resolveStructuredEditors(rootEditor, path) {
+  let editors = [rootEditor];
+  path.forEach(part => {
+    editors = editors.flatMap(editor => {
+      const entries = editor.querySelector(':scope > .structured-entries');
+      if (!entries) return [];
+
+      if (part.type === 'item') {
+        return Array.from(entries.children)
+          .filter(entry => entry.classList.contains('array-entry'))
+          .map(entry => entry.querySelector(':scope > .structured-entry-value > .structured-value-editor'))
+          .filter(Boolean);
+      }
+
+      const propertyEntry = Array.from(entries.children).find(entry =>
+        entry.classList.contains('object-entry')
+        && entry.querySelector(':scope > .structured-entry-header > .structured-key')?.value.trim() === part.key
+      );
+      const childEditor = propertyEntry?.querySelector(':scope > .structured-entry-value > .structured-value-editor');
+      return childEditor ? [childEditor] : [];
+    });
+  });
+  return editors;
+}
+
+function resolveStructuredValues(rootValue, path) {
+  let values = [rootValue];
+  path.forEach(part => {
+    values = values.flatMap(value => {
+      if (part.type === 'item') return Array.isArray(value) ? value : [];
+      return value && typeof value === 'object' && !Array.isArray(value)
+        && Object.prototype.hasOwnProperty.call(value, part.key)
+        ? [value[part.key]]
+        : [];
+    });
+  });
+  return values;
+}
+
+function addPropertiesToObject(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+  let added = 0;
+  keys.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(value, key)) return;
+    Object.defineProperty(value, key, {
+      value: '',
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    added++;
+  });
+  return added;
+}
+
+function createStructuredValueEditor(value, type = inferModalValueType(value), fieldKey = '', arrayItem = false, typeHints = null) {
+  const editor = document.createElement('div');
+  editor.className = 'structured-value-editor';
+  editor.dataset.valueType = type;
+
+  if (type === 'object') {
+    const sourceObject = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const hasObjectProperties = Object.keys(sourceObject).length > 0;
+    const exampleObjects = arrayItem
+      ? findArrayExamples(fieldKey).flat().filter(item =>
+        item && typeof item === 'object' && !Array.isArray(item)
+      )
+      : findObjectExamples(fieldKey);
+    const expectedTemplate = !hasObjectProperties && !typeHints && exampleObjects.length
+      ? createBlankObjectValueTemplate(exampleObjects)
+      : null;
+    const objectValue = expectedTemplate?.value ?? sourceObject;
+    const objectTypeHints = expectedTemplate?.types ?? typeHints;
+    const entries = document.createElement('div');
+    entries.className = 'structured-entries';
+    Object.entries(objectValue)
+      .forEach(([key, childValue]) => {
+        const childHint = objectTypeHints?.[key];
+        entries.appendChild(createStructuredEntry(
+          key,
+          childValue,
+          fieldKey,
+          childHint?.type,
+          childHint?.properties,
+        ));
+      });
+
+    const add = document.createElement('div');
+    add.className = 'structured-add-entry';
+    const keyInput = document.createElement('input');
+    keyInput.className = 'field-input';
+    keyInput.type = 'text';
+    keyInput.placeholder = 'Property name';
+    keyInput.setAttribute('aria-label', 'Property name');
+    const addButton = document.createElement('button');
+    addButton.className = 'btn btn-xs';
+    addButton.type = 'button';
+    addButton.textContent = '＋ Property';
+    const hasProperty = (objectEntries, key) => Array.from(objectEntries.children).some(entry =>
+      entry.classList.contains('object-entry')
+      && entry.querySelector('.structured-key').value.trim() === key
+    );
+    const addProperty = (objectEditor, key) => {
+      const objectEntries = objectEditor.querySelector(':scope > .structured-entries');
+      if (!objectEntries || hasProperty(objectEntries, key)) return false;
+      objectEntries.appendChild(createStructuredEntry(key, '', fieldKey));
+      return true;
+    };
+    addButton.addEventListener('click', () => {
+      const key = keyInput.value.trim();
+      if (!key) {
+        keyInput.focus();
+        return;
+      }
+      if (!addProperty(editor, key)) {
+        showToast(`"${key}" is already in this object.`, 'danger');
+        return;
+      }
+      keyInput.value = '';
+    });
+    keyInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        addButton.click();
+      }
+    });
+    add.append(keyInput, addButton);
+
+    const bulkAdd = document.createElement('details');
+    bulkAdd.className = 'structured-bulk-add';
+    const bulkSummary = document.createElement('summary');
+    bulkSummary.textContent = 'Bulk properties';
+    const bulkHint = document.createElement('small');
+    bulkHint.className = 'structured-bulk-add-hint';
+    bulkHint.textContent = 'Adds properties to matching object items in this array across all levels.';
+    const bulkInput = document.createElement('textarea');
+    bulkInput.className = 'field-input field-textarea';
+    bulkInput.rows = 3;
+    bulkInput.placeholder = 'Enter one property name per line';
+    bulkInput.setAttribute('aria-label', 'Property names to add, one per line');
+    const bulkButton = document.createElement('button');
+    bulkButton.className = 'btn btn-xs';
+    bulkButton.type = 'button';
+    bulkButton.textContent = '＋ Apply properties';
+    bulkButton.addEventListener('click', () => {
+      const keys = [...new Set(bulkInput.value
+        .split(/\r?\n/)
+        .map(key => key.trim())
+        .filter(Boolean))];
+      if (!keys.length) {
+        bulkInput.focus();
+        showToast('Enter one or more property names first.', 'danger');
+        return;
+      }
+
+      const fieldRow = editor.closest('.editor-field');
+      const fieldKey = fieldRow?.dataset.fieldKey;
+      const rootEditor = fieldRow?.querySelector(':scope > .editor-field-value > .structured-value-editor');
+      const path = rootEditor && getStructuredEditorPath(rootEditor, editor);
+      if (!fieldKey || !rootEditor || !path || !path.some(part => part.type === 'item')) {
+        showToast('Bulk apply is only available for object items inside an array.', 'danger');
+        return;
+      }
+
+      const objectEditors = resolveStructuredEditors(rootEditor, path)
+        .filter(objectEditor => objectEditor?.dataset.valueType === 'object');
+      let added = 0;
+      objectEditors.forEach(objectEditor => {
+        keys.forEach(key => {
+          if (addProperty(objectEditor, key)) added++;
+        });
+      });
+
+      let updatedLevels = 0;
+      let otherLevelAdded = 0;
+      let otherLevelTargets = 0;
+      state.rawLevels.forEach(level => {
+        if (level._id === state.modalLevelId) return;
+        const targets = resolveStructuredValues(level[fieldKey], path)
+          .filter(value => value && typeof value === 'object' && !Array.isArray(value));
+        if (!targets.length) return;
+        otherLevelTargets += targets.length;
+        let levelAdded = 0;
+        targets.forEach(target => {
+          levelAdded += addPropertiesToObject(target, keys);
+        });
+        if (levelAdded) {
+          updatedLevels++;
+          otherLevelAdded += levelAdded;
+        }
+      });
+      if (otherLevelAdded) {
+        saveSession();
+        document.dispatchEvent(new CustomEvent('dl:render'));
+      }
+
+      const alreadyPresent = keys.length * (objectEditors.length + otherLevelTargets) - added - otherLevelAdded;
+      bulkInput.value = '';
+      if (added + otherLevelAdded === 0) {
+        showToast('Those properties already exist, or no matching object items were found.', 'danger');
+      } else {
+        const details = [];
+        if (alreadyPresent) details.push(`${alreadyPresent} already present`);
+        if (updatedLevels) details.push(`updated ${updatedLevels} other level${updatedLevels === 1 ? '' : 's'}`);
+        showToast(`Added ${added + otherLevelAdded} propert${added + otherLevelAdded === 1 ? 'y' : 'ies'}${details.length ? `; ${details.join(', ')}` : ''}.`);
+      }
+    });
+    bulkAdd.append(bulkSummary, bulkHint, bulkInput, bulkButton);
+
+    editor.append(entries, add);
+    editor.appendChild(bulkAdd);
+    return editor;
+  }
+
+  if (type === 'array') {
+    const entries = document.createElement('div');
+    entries.className = 'structured-entries';
+    (Array.isArray(value) ? value : []).forEach(childValue => {
+      entries.appendChild(createStructuredEntry(null, childValue, fieldKey));
+    });
+    renumberArrayItems(entries);
+    const getNewItemTemplate = () => {
+      const defaultTemplate = getDefaultArrayItemTemplate(fieldKey);
+      if (defaultTemplate) return defaultTemplate;
+
+      const itemEditors = Array.from(entries.querySelectorAll(':scope > .array-entry .structured-entry-value > .structured-value-editor'));
+      if (!itemEditors.length) return { value: null, type: 'null' };
+
+      const itemType = getMostCommonArrayItemType(itemEditors.map(itemEditor => itemEditor.dataset.valueType));
+
+      if (itemType === 'object') {
+        const objectEditors = itemEditors.filter(itemEditor => itemEditor.dataset.valueType === 'object');
+        const template = createBlankObjectTemplate(objectEditors);
+        return { ...template, type: 'object' };
+      }
+      if (itemType === 'array') return { value: [], type: 'array' };
+      if (itemType === 'boolean') return { value: false, type: 'boolean' };
+      if (itemType === 'number') return { value: null, type: 'number' };
+      if (itemType === 'null') return { value: null, type: 'null' };
+      return { value: '', type: 'text' };
+    };
+    const addButton = document.createElement('button');
+    addButton.className = 'btn btn-xs';
+    addButton.type = 'button';
+    addButton.textContent = '＋ Item';
+    addButton.addEventListener('click', () => {
+      const newItem = getNewItemTemplate();
+      entries.appendChild(createStructuredEntry(null, newItem.value, fieldKey, newItem.type, newItem.types));
+      renumberArrayItems(entries);
+    });
+    editor.append(entries, addButton);
+    return editor;
+  }
+
+  if (arrayItem && (type === 'text' || type === 'number')) {
+    const control = makeFieldControl(type, value, '');
+    const examples = type === 'text'
+      ? findArrayItemTextExamples(fieldKey)
+      : findArrayItemNumberExamples(fieldKey);
+    if (type === 'number') setRandomNumberPlaceholder(control, examples);
+    editor.appendChild(type === 'text' && examples.length
+      ? addExistingValuesPicker(control, fieldKey, examples)
+      : type === 'number' && examples.length
+        ? addNumberValuesPicker(control, fieldKey, examples)
+        : control);
+  } else {
+    editor.appendChild(makeFieldControl(type, value, fieldKey));
+  }
+  return editor;
+}
+
+function createStructuredEntry(key, value, parentFieldKey = '', valueType = inferModalValueType(value), typeHints = null) {
+  const entry = document.createElement('div');
+  entry.className = key === null ? 'structured-entry array-entry' : 'structured-entry object-entry';
+  if (key !== null) entry.dataset.propertyKey = key;
+
+  const header = document.createElement('div');
+  header.className = 'structured-entry-header';
+  if (key === null) {
+    header.classList.add('structured-entry-header--array-item');
+    const label = document.createElement('span');
+    label.className = 'structured-item-label';
+    label.textContent = 'Item';
+    header.appendChild(label);
+  } else {
+    const keyInput = document.createElement('input');
+    keyInput.className = 'field-input structured-key';
+    keyInput.type = 'text';
+    keyInput.value = key;
+    keyInput.setAttribute('aria-label', 'Property name');
+    header.appendChild(keyInput);
+  }
+
+  const valueHost = document.createElement('div');
+  valueHost.className = 'structured-entry-value';
+  const typeSelect = createValueTypeSelect(value, type => {
+    entry.classList.toggle('structured-entry--structured', isStructuredValueType(type));
+    valueHost.replaceChildren(createStructuredValueEditor(null, type, key ?? parentFieldKey, key === null));
+  }, valueType);
+  if (isStructuredValueType(valueType)) {
+    entry.classList.add('structured-entry--structured');
+  }
+  header.appendChild(typeSelect);
+
+  if (key === null) {
+    const duplicateButton = document.createElement('button');
+    duplicateButton.className = 'editor-duplicate-button';
+    duplicateButton.type = 'button';
+    duplicateButton.textContent = '⧉';
+    duplicateButton.title = 'Duplicate item';
+    duplicateButton.setAttribute('aria-label', 'Duplicate array item');
+    duplicateButton.addEventListener('click', () => {
+      try {
+        const currentValue = readStructuredValue(
+          valueHost.querySelector(':scope > .structured-value-editor')
+        );
+        entry.insertAdjacentElement('afterend', createStructuredEntry(null, currentValue, parentFieldKey));
+        renumberArrayItems(entry.parentElement);
+      } catch (error) {
+        showToast(`Can't duplicate this item: ${error.message}`, 'danger');
+      }
+    });
+    header.appendChild(duplicateButton);
+  }
+
+  const removeButton = document.createElement('button');
+  removeButton.className = 'editor-remove-button';
+  removeButton.type = 'button';
+  removeButton.textContent = '×';
+  removeButton.title = key === null ? 'Remove item' : `Remove ${key}`;
+  removeButton.setAttribute('aria-label', removeButton.title);
+  removeButton.addEventListener('click', () => {
+    const entries = entry.parentElement;
+    entry.remove();
+    if (key === null && entries) renumberArrayItems(entries);
+  });
+  header.appendChild(removeButton);
+
+  valueHost.appendChild(createStructuredValueEditor(
+    value,
+    valueType,
+    key ?? parentFieldKey,
+    key === null,
+    typeHints,
+  ));
+  entry.append(header, valueHost);
+  return entry;
+}
+
+function setModalFieldControl(row, type, value) {
+  row.dataset.valueType = type;
+  row.classList.toggle('editor-field--structured', isStructuredValueType(type));
+  row.classList.toggle('editor-field--wide', isStructuredValueType(type)
+    || ['name', 'creators', 'ratio', 'victors'].includes(row.dataset.fieldKey));
+  const host = row.querySelector('.editor-field-value');
+  host.replaceChildren();
+  host.appendChild(createStructuredValueEditor(value, type, row.dataset.fieldKey));
+}
+
+function createModalField(key, value, valueType = inferModalValueType(value)) {
+  const row = document.createElement('div');
+  const isStructured = valueType === 'object' || valueType === 'array';
+  const isWide = isStructured || ['name', 'creators', 'ratio', 'victors'].includes(key);
+  row.className = `editor-field${isStructured ? ' editor-field--structured' : ''}${isWide ? ' editor-field--wide' : ''}`;
+  row.dataset.fieldKey = key;
+
+  const heading = document.createElement('div');
+  heading.className = 'editor-field-heading';
+  const fieldName = document.createElement('div');
+  fieldName.className = 'editor-field-name';
+  const label = document.createElement('label');
+  label.className = 'field-label';
+  label.textContent = formatFieldLabel(key);
+  label.title = key;
+  const jsonKey = document.createElement('small');
+  jsonKey.className = 'editor-json-key';
+  jsonKey.textContent = key;
+  jsonKey.hidden = state.settings.showJsonFieldNames === false;
+  fieldName.append(label, jsonKey);
+  const typeSelect = createValueTypeSelect(
+    value,
+    type => setModalFieldControl(row, type, null),
+    valueType,
+  );
+  typeSelect.setAttribute('aria-label', `${key} value type`);
+  typeSelect.title = `Value type: ${key}`;
+  const remove = document.createElement('button');
+  remove.className = 'editor-remove-button';
+  remove.type = 'button';
+  remove.textContent = '×';
+  remove.title = `Remove ${formatFieldLabel(key)} field`;
+  remove.setAttribute('aria-label', `Remove ${key}`);
+  remove.addEventListener('click', () => {
+    row.remove();
+    updateModalFieldCount();
+  });
+  heading.append(fieldName, typeSelect, remove);
+
+  const host = document.createElement('div');
+  host.className = 'editor-field-value';
+  row.append(heading, host);
+
+  setModalFieldControl(row, valueType, value);
+  return row;
+}
+
+function renderModalFields(level, valueTypes = {}) {
+  const container = document.getElementById('modal-fields');
+  if (!container) return;
+  container.replaceChildren();
+  Object.entries(level)
+    .filter(([key]) => !isManagedField(key))
+    .forEach(([key, value]) => {
+      const valueType = valueTypes[key] ?? (
+        isEmptyFieldValue(value) ? getExpectedFieldType(key, level) : inferModalValueType(value)
+      );
+      container.appendChild(createModalField(key, value, valueType));
+    });
+  updateModalFieldCount();
+}
+
+export function addModalField() {
+  const nameInput = document.getElementById('modal-new-field-name');
+  const key = nameInput?.value.trim();
+  if (!key) {
+    nameInput?.focus();
+    return;
+  }
+  if (isManagedField(key)) {
+    showToast(`"${key}" is reserved by the editor.`, 'danger');
+    return;
+  }
+  if (Array.from(document.querySelectorAll('#modal-fields .editor-field'))
+    .some(row => row.dataset.fieldKey === key)) {
+    showToast(`"${key}" is already in this record.`, 'danger');
+    return;
+  }
+
+  const container = document.getElementById('modal-fields');
+  const expectedType = inferExpectedFieldType(
+    state.rawLevels.filter(level => Object.prototype.hasOwnProperty.call(level, key)).map(level => level[key])
+  );
+  container.appendChild(createModalField(key, createBlankValue(expectedType), expectedType));
+  updateModalFieldCount();
+  nameInput.value = '';
+  container.lastElementChild?.querySelector('.structured-value-editor input, .structured-value-editor textarea, .structured-value-editor select')?.focus();
+}
+
+function getBulkFieldNames() {
+  const input = document.getElementById('bulk-fields-input');
+  const names = [...new Set((input?.value ?? '')
+    .split(/\r?\n/)
+    .map(name => name.trim())
+    .filter(Boolean))];
+  if (names.length === 0) {
+    showToast('Enter one or more field names first.', 'danger');
+    input?.focus();
+    return null;
+  }
+
+  const reserved = names.find(isManagedField);
+  if (reserved) {
+    showToast(`"${reserved}" is reserved by the editor and cannot be changed here.`, 'danger');
+    return null;
+  }
+  return names;
+}
+
+export function openBulkFieldsModal() {
+  const input = document.getElementById('bulk-fields-input');
+  if (input) input.value = '';
+  const renameFrom = document.getElementById('bulk-field-rename-from');
+  const renameTo = document.getElementById('bulk-field-rename-to');
+  if (renameFrom) renameFrom.value = '';
+  if (renameTo) renameTo.value = '';
+  document.getElementById('bulk-fields-modal')?.classList.add('active');
+  input?.focus();
+}
+
+export function closeBulkFieldsModal() {
+  document.getElementById('bulk-fields-modal')?.classList.remove('active');
+}
+
+export function addBulkFields() {
+  const names = getBulkFieldNames();
+  if (!names) return;
+  if (state.rawLevels.length === 0) {
+    showToast('Load levels before adding fields.', 'danger');
+    return;
+  }
+
+  const levelsChanged = new Set();
+  let valuesAdded = 0;
+  state.rawLevels.forEach(level => {
+    names.forEach(name => {
+      if (Object.prototype.hasOwnProperty.call(level, name)) return;
+      Object.defineProperty(level, name, {
+        value: '',
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+      valuesAdded++;
+      levelsChanged.add(level);
+    });
+  });
+
+  if (valuesAdded === 0) {
+    showToast('Those fields already exist on every level.', 'gold');
+    return;
+  }
+  detectColumnsFromLevels();
+  saveSession();
+  document.dispatchEvent(new CustomEvent('dl:render'));
+  showToast(`Added ${valuesAdded} blank field value(s) across ${levelsChanged.size} level(s).`);
+}
+
+export function removeBulkFields() {
+  const names = getBulkFieldNames();
+  if (!names) return;
+  if (names.includes('name')) {
+    showToast('"name" is required and cannot be removed.', 'danger');
+    return;
+  }
+
+  if (!confirm(`Remove ${names.length} field(s) and all their values from every level?`)) return;
+
+  let valuesRemoved = 0;
+  state.rawLevels.forEach(level => {
+    names.forEach(name => {
+      if (Object.prototype.hasOwnProperty.call(level, name)) {
+        delete level[name];
+        valuesRemoved++;
+      }
+    });
+  });
+
+  if (valuesRemoved === 0) {
+    showToast('None of those fields were found.', 'gold');
+    return;
+  }
+  names.forEach(name => removeDetectedColumn(name));
+  state.hiddenColumns = state.hiddenColumns.filter(column => !names.includes(column));
+  state.dynamicFields = state.dynamicFields.filter(field => !names.includes(field.id));
+
+  detectColumnsFromLevels();
+  saveSession();
+  document.dispatchEvent(new CustomEvent('dl:render'));
+  showToast(`Removed ${valuesRemoved} field value(s) from the levels.`);
+}
+
+export function renameBulkField() {
+  const fromInput = document.getElementById('bulk-field-rename-from');
+  const toInput = document.getElementById('bulk-field-rename-to');
+  const from = fromInput?.value.trim() ?? '';
+  const to = toInput?.value.trim() ?? '';
+  if (!from || !to) {
+    showToast('Enter both the current and new field names.', 'danger');
+    (!from ? fromInput : toInput)?.focus();
+    return;
+  }
+  if (from === to) {
+    showToast('The new field name must be different.', 'danger');
+    toInput?.focus();
+    return;
+  }
+  if (isManagedField(from) || isManagedField(to) || FIELD_ID_SET.has(from) || FIELD_ID_SET.has(to)) {
+    showToast('That field name is reserved by the editor and cannot be renamed.', 'danger');
+    return;
+  }
+
+  const sourceExists = state.rawLevels.some(level =>
+    Object.prototype.hasOwnProperty.call(level, from)
+  );
+  if (!sourceExists) {
+    showToast(`Field "${from}" was not found on any level.`, 'danger');
+    fromInput?.focus();
+    return;
+  }
+  const targetExists = state.rawLevels.some(level =>
+    Object.prototype.hasOwnProperty.call(level, to)
+  );
+  if (targetExists) {
+    showToast(`Cannot rename to "${to}" because that field already exists on a level.`, 'danger');
+    toInput?.focus();
+    return;
+  }
+
+  const wasHidden = state.hiddenColumns.includes(from);
+  state.rawLevels.forEach(level => {
+    if (!Object.prototype.hasOwnProperty.call(level, from)) return;
+    Object.defineProperty(level, to, {
+      value: level[from],
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    delete level[from];
+  });
+
+  removeDetectedColumn(from);
+  addDetectedColumn(to);
+  state.hiddenColumns = state.hiddenColumns.filter(column => column !== from && column !== to);
+  if (wasHidden) state.hiddenColumns.push(to);
+  state.dynamicFields = state.dynamicFields.map(field =>
+    field.id === from
+      ? {
+          ...field,
+          id: to,
+          label: to.replace(/\./g, ' › ').replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
+        }
+      : field
+  );
+
+  detectColumnsFromLevels();
+  saveSession();
+  document.dispatchEvent(new CustomEvent('dl:render'));
+  showToast(`Renamed "${from}" to "${to}" across the levels.`);
+}
+
+function readModalFieldValue(row) {
+  const key = row.dataset.fieldKey;
+  const type = row.dataset.valueType;
+  const editor = row.querySelector('.editor-field-value > .structured-value-editor');
+  try {
+    return readStructuredValue(editor, type);
+  } catch (error) {
+    throw new Error(`"${key}": ${error.message}`);
+  }
+}
+
+function readStructuredValue(editor, type = editor.dataset.valueType) {
+  if (type === 'null') return null;
+  if (type === 'object') {
+    const result = {};
+    editor.querySelectorAll(':scope > .structured-entries > .object-entry').forEach(entry => {
+      const key = entry.querySelector('.structured-key').value.trim();
+      if (!key) throw new Error('object property names cannot be blank.');
+      if (Object.prototype.hasOwnProperty.call(result, key)) {
+        throw new Error(`object property "${key}" is duplicated.`);
+      }
+      Object.defineProperty(result, key, {
+        value: readStructuredValue(entry.querySelector('.structured-entry-value > .structured-value-editor')),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    });
+    return result;
+  }
+  if (type === 'array') {
+    return Array.from(editor.querySelectorAll(':scope > .structured-entries > .array-entry'))
+      .map(entry => readStructuredValue(entry.querySelector('.structured-entry-value > .structured-value-editor')));
+  }
+
+  const input = editor.querySelector(':scope > input, :scope > textarea, :scope > select, :scope > .editor-value-picker > input, :scope > .editor-value-picker > textarea');
+  if (type === 'boolean') return input.value === '' ? null : input.value === 'true';
+  if (type === 'number') {
+    if (input.value.trim() === '') return null;
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) throw new Error('number must be valid.');
+    return value;
+  }
+  return input.value === '' ? null : input.value;
 }
 
 export function closeModal() {
@@ -61,73 +1216,29 @@ export function closeModal() {
   state.modalLevelId = null;
 }
 
-export function updateModalThumb() {
-  const videoVal = document.getElementById('modal-video')?.value ?? '';
-  const listidVal = document.getElementById('modal-listid')?.value ?? '';
-  const gdId = listidVal && /^\d+$/.test(listidVal.trim()) ? parseInt(listidVal.trim(), 10) : null;
-  const ytUrl = thumbUrl(videoVal);
-  const gdUrl = gdId ? gdThumbUrl(gdId) : null;
-  const primary = gdUrl || ytUrl;
-  const fallback = gdUrl && ytUrl ? ytUrl : null;
-
-  const preview = document.getElementById('modal-thumb-preview');
-  if (!preview) return;
-
-  if (!primary) {
-    preview.style.display = 'none';
-    preview.innerHTML = '';
-    return;
-  }
-
-  preview.style.display = 'block';
-  preview.innerHTML = '';
-  const img = document.createElement('img');
-  img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-  img.src = primary;
-  if (fallback) {
-    img.onerror = () => { img.src = fallback; img.onerror = () => { preview.style.display = 'none'; }; };
-  } else {
-    img.onerror = () => { preview.style.display = 'none'; };
-  }
-  preview.appendChild(img);
-}
-
 export function submitModal() {
-  const nameInput = document.getElementById('modal-name');
-  const name = nameInput.value.trim();
-
-  if (!name) {
-    nameInput.classList.add('error');
-    nameInput.focus();
-    setTimeout(() => nameInput.classList.remove('error'), 600);
+  let data;
+  try {
+    data = Object.fromEntries(
+      Array.from(document.querySelectorAll('#modal-fields .editor-field')).map(row => [
+        row.dataset.fieldKey,
+        readModalFieldValue(row),
+      ])
+    );
+  } catch (error) {
+    showToast(error.message, 'danger');
     return;
   }
 
-  const listReferenceValue = document.getElementById('modal-listid').value.trim();
-  const numericId = listReferenceValue && /^\d+$/.test(listReferenceValue) ? parseInt(listReferenceValue, 10) : null;
-
-  const data = {
-    name,
-    creators: document.getElementById('modal-creators').value.trim() || undefined,
-    showcaseVideo: document.getElementById('modal-video').value.trim() || undefined,
-    id: numericId,
-    originalName: listReferenceValue || undefined,
-    notes: (() => {
-      const notesInput = document.getElementById('modal-notes');
-      return notesInput ? notesInput.value.trim() || undefined : undefined;
-    })(),
-    victors: (() => {
-      const victorsInput = document.getElementById('modal-victors');
-      const victorsStr = victorsInput ? victorsInput.value.trim() : '';
-      if (!victorsStr) return undefined;
-      try {
-        return JSON.parse(victorsStr);
-      } catch (e) {
-        showToast('Invalid victors JSON', 'danger');
-        return undefined;
-      }
-    })(),
-  };
+  const name = String(data.name ?? '').trim();
+  const nameInput = document.querySelector('#modal-fields [data-field-key="name"] .structured-value-editor input, #modal-fields [data-field-key="name"] .structured-value-editor textarea, #modal-fields [data-field-key="name"] .structured-value-editor select');
+  if (!name) {
+    nameInput?.classList.add('error');
+    nameInput?.focus();
+    setTimeout(() => nameInput?.classList.remove('error'), 600);
+    return;
+  }
+  data.name = name;
 
   const duplicate = findDuplicateLevel(
     { ...data, _id: state.modalLevelId ?? undefined },
@@ -142,16 +1253,26 @@ export function submitModal() {
   if (state.modalMode === 'edit' && state.modalLevelId) {
     const level = state.levelMap.get(state.modalLevelId);
     if (level) {
-
-      Object.keys(data).forEach(key => {
-        if (data[key] !== undefined) {
-          level[key] = data[key];
-        } else {
-
-          delete level[key];
-        }
+      const wasRanked = state.rankedList.some(item => item._id === level._id);
+      state.modalOriginalKeys.forEach(key => delete level[key]);
+      Object.entries(data).forEach(([key, value]) => {
+        Object.defineProperty(level, key, {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       });
       level.lastEdited = new Date().toISOString();
+      const rankedIdx = state.rankedList.findIndex(item => item._id === level._id);
+      if (isRankedVariant(level)) {
+        if (rankedIdx !== -1) state.rankedList.splice(rankedIdx, 1);
+        level.pending = false;
+        state.pendingLevels = state.pendingLevels.filter(item => item._id !== level._id);
+      } else if (!wasRanked && !level.pending) {
+        state.rankedList.push(level);
+      }
+      detectColumnsFromLevels();
       saveSession();
       document.dispatchEvent(new CustomEvent('dl:render'));
       showToast(`"${name}" updated`);
@@ -159,17 +1280,20 @@ export function submitModal() {
   } else if (state.modalMode === 'add') {
     const statusEl = document.querySelector('input[name="modal-status"]:checked');
     const status = statusEl ? statusEl.value : 'pending';
-    const cleanData = {};
-    Object.keys(data).forEach(key => {
-      if (data[key] !== undefined) {
-        cleanData[key] = data[key];
-      }
-    });
-
-    const _id = makeLevelId(cleanData, state.rawLevels.length);
-    const level = { ...cleanData, _id, pending: true, customValues: {} };
+    const _id = makeLevelId(data, state.rawLevels.length);
+    const level = { ...data, _id, pending: true, customValues: {} };
     state.rawLevels.push(level);
     state.levelMap.set(_id, level);
+    detectColumnsFromLevels();
+
+    if (isRankedVariant(level)) {
+      level.pending = false;
+      saveSession();
+      document.dispatchEvent(new CustomEvent('dl:render'));
+      showToast(`"${name}" added as a rankless variant`);
+      closeModal();
+      return;
+    }
 
     if (status === 'ranked') {
       level.pending = false;
@@ -201,10 +1325,12 @@ export function openSettingsModal() {
   document.getElementById('confirm-reset').checked = state.settings.confirmReset;
   document.getElementById('confirm-import-overwrite').checked = state.settings.confirmImportOverwrite;
   document.getElementById('enable-drag-drop').checked = state.settings.enableDragDrop;
+  document.getElementById('show-json-field-names').checked = state.settings.showJsonFieldNames !== false;
+  document.getElementById('show-ranking-thumbnails').checked = state.settings.showRankingThumbnails !== false;
+  document.getElementById('expand-ranking-details').checked = state.settings.expandRankingDetails === true;
+  document.getElementById('existing-import-behavior').value = state.settings.existingImportBehavior || 'ask';
+  document.getElementById('include-pending-in-export').checked = state.settings.includePendingInExport === true;
 
-  document.querySelectorAll('input[name="inline-edit-mode"]').forEach(radio => {
-    radio.checked = radio.value === state.settings.inlineEditMode;
-  });
   document.querySelectorAll('input[name="default-new-status"]').forEach(radio => {
     radio.checked = radio.value === state.settings.defaultNewStatus;
   });
@@ -218,13 +1344,22 @@ export function closeSettingsModal() {
 }
 
 export function saveSettingsModal() {
+  const expandRankingDetails = document.getElementById('expand-ranking-details').checked;
+  state.resetRankingDetailsToDefault = state.settings.expandRankingDetails !== expandRankingDetails;
   state.settings.confirmDelete = document.getElementById('confirm-delete').checked;
   state.settings.confirmReset = document.getElementById('confirm-reset').checked;
   state.settings.confirmImportOverwrite = document.getElementById('confirm-import-overwrite').checked;
   state.settings.enableDragDrop = document.getElementById('enable-drag-drop').checked;
-  state.settings.inlineEditMode = document.querySelector('input[name="inline-edit-mode"]:checked')?.value || 'single';
+  state.settings.showJsonFieldNames = document.getElementById('show-json-field-names').checked;
+  state.settings.showRankingThumbnails = document.getElementById('show-ranking-thumbnails').checked;
+  state.settings.expandRankingDetails = expandRankingDetails;
+  state.settings.existingImportBehavior = document.getElementById('existing-import-behavior').value;
+  state.settings.includePendingInExport = document.getElementById('include-pending-in-export').checked;
   state.settings.defaultNewStatus = document.querySelector('input[name="default-new-status"]:checked')?.value || 'pending';
 
+  document.querySelectorAll('.editor-json-key').forEach(key => {
+    key.hidden = !state.settings.showJsonFieldNames;
+  });
   saveSettings();
   closeSettingsModal();
   document.dispatchEvent(new CustomEvent('dl:render'));
@@ -362,7 +1497,7 @@ export function addCustomValueFromModal() {
   }
 }
 
-function saveSettings() {
+function persistModalSettings() {
   try {
     localStorage.setItem('demonListSettings', JSON.stringify(state.settings));
   } catch (_) { }

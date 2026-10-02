@@ -11,27 +11,6 @@ function triggerRender() {
   document.dispatchEvent(new CustomEvent('dl:render'));
 }
 
-function cleanExportObject(value) {
-  if (value === null || value === undefined || value === '') return undefined;
-  if (Array.isArray(value)) {
-    const cleanedArray = value
-      .map(cleanExportObject)
-      .filter(item => item !== null && item !== undefined && item !== '');
-    return cleanedArray.length > 0 ? cleanedArray : undefined;
-  }
-  if (typeof value !== 'object') return value;
-
-  const cleanedObject = {};
-  for (const [key, nestedValue] of Object.entries(value)) {
-    const cleanedValue = cleanExportObject(nestedValue);
-    if (cleanedValue === null || cleanedValue === undefined || cleanedValue === '') continue;
-    if (Array.isArray(cleanedValue) && cleanedValue.length === 0) continue;
-    if (typeof cleanedValue === 'object' && Object.keys(cleanedValue).length === 0) continue;
-    cleanedObject[key] = cleanedValue;
-  }
-  return Object.keys(cleanedObject).length > 0 ? cleanedObject : undefined;
-}
-
 function switchToTab(tabName) {
   document.dispatchEvent(new CustomEvent('dl:tabswitch', { detail: { tab: tabName } }));
 }
@@ -50,6 +29,32 @@ export function getMid() {
   return Math.floor((state.insertionSession.lo + state.insertionSession.hi) / 2);
 }
 
+export function isRankedVariant(level) {
+  if (typeof level?.duplicateOf !== 'string' || level.duplicateOf.length === 0) {
+    return false;
+  }
+
+  return state.rawLevels.some(candidate =>
+    candidate !== level &&
+    candidate.name === level.duplicateOf &&
+    candidate.pending !== true &&
+    !(typeof candidate.duplicateOf === 'string' && candidate.duplicateOf.length > 0)
+  );
+}
+
+export function getOrdinaryRankedEntries() {
+  return state.rankedList.map((level, index) => ({ level, index }));
+}
+
+export function getMidLevel() {
+  const mid = getMid();
+  return getOrdinaryRankedEntries()[mid]?.level ?? null;
+}
+
+function getInsertionArrayIndex(ordinaryIndex) {
+  return Math.max(0, Math.min(ordinaryIndex, state.rankedList.length));
+}
+
 function recordComparison(harderId, easierId, confidence) {
   const key = compKey(harderId, easierId);
   state.comparisonGraph.set(key, { harderId, easierId, confidence, key });
@@ -64,7 +69,7 @@ function clearComparisonsFor(levelId) {
 }
 
 export function checkContradictions() {
-  const indexMap = new Map(state.rankedList.map((level, i) => [level._id, i]));
+  const indexMap = new Map(getOrdinaryRankedEntries().map(({ level }, i) => [level._id, i]));
   const contradictions = [];
 
   for (const [, comp] of state.comparisonGraph) {
@@ -113,14 +118,23 @@ export function resolveContradiction(levelId) {
 }
 
 export function startInsertion(level) {
-  if (state.rankedList.length === 0) {
+  if (isRankedVariant(level)) {
+    level.pending = false;
+    state.pendingLevels = state.pendingLevels.filter(item => item._id !== level._id);
+    saveSession();
+    triggerRender();
+    return;
+  }
+
+  const ordinaryEntries = getOrdinaryRankedEntries();
+  if (ordinaryEntries.length === 0) {
     level.pending = false;
     level.confidence = CONFIDENCE_LEVELS.CERTAIN;
     level.lowConfidence = false;
     level.lastEdited = new Date().toISOString();
     state.rankedList.push(level);
     state.pendingLevels = state.pendingLevels.filter(l => l._id !== level._id);
-    state.placementHistory.push({ level, insertedAt: 0, compsDone: 0 });
+    state.placementHistory.push({ level, insertedAt: state.rankedList.length - 1, compsDone: 0 });
     saveSession();
     triggerRender();
     showToast(`"${level.name}" placed at #1 (first item)`);
@@ -129,7 +143,7 @@ export function startInsertion(level) {
   state.insertionSession = {
     level,
     lo: 0,
-    hi: state.rankedList.length,
+    hi: ordinaryEntries.length,
     stepHistory: [],
     minConfidence: CONFIDENCE_LEVELS.CERTAIN,
   };
@@ -154,7 +168,7 @@ export function vote(winner, confidence = CONFIDENCE_LEVELS.CERTAIN) {
     state.insertionSession.minConfidence = CONFIDENCE_LEVELS.LEANING;
   }
 
-  const midLevel = state.rankedList[mid];
+  const midLevel = getOrdinaryRankedEntries()[mid]?.level;
   const newLevel = state.insertionSession.level;
 
   if (midLevel) {
@@ -183,7 +197,7 @@ export function vote(winner, confidence = CONFIDENCE_LEVELS.CERTAIN) {
 function finalizeAtMid(confidence) {
   const { level, lo, hi, stepHistory } = state.insertionSession;
   const mid = Math.floor((lo + hi) / 2);
-  const midLevel = state.rankedList[mid];
+  const midLevel = getOrdinaryRankedEntries()[mid]?.level;
 
   if (midLevel) {
     recordComparison(level._id, midLevel._id, confidence);
@@ -194,9 +208,10 @@ function finalizeAtMid(confidence) {
   level.confidence = confidence;
   level.lowConfidence = confidence !== CONFIDENCE_LEVELS.CERTAIN;
   level.lastEdited = new Date().toISOString();
-  state.rankedList.splice(mid, 0, level);
+  const insertedAt = getInsertionArrayIndex(mid);
+  state.rankedList.splice(insertedAt, 0, level);
   state.pendingLevels = state.pendingLevels.filter(l => l._id !== level._id);
-  state.placementHistory.push({ level, insertedAt: mid, compsDone: stepHistory.length + 1 });
+  state.placementHistory.push({ level, insertedAt, compsDone: stepHistory.length + 1 });
   state.insertionSession = null;
 
   checkContradictions();
@@ -211,9 +226,10 @@ function finalizeInsertion() {
   level.confidence = minConfidence;
   level.lowConfidence = minConfidence !== CONFIDENCE_LEVELS.CERTAIN;
   level.lastEdited = new Date().toISOString();
-  state.rankedList.splice(lo, 0, level);
+  const insertedAt = getInsertionArrayIndex(lo);
+  state.rankedList.splice(insertedAt, 0, level);
   state.pendingLevels = state.pendingLevels.filter(l => l._id !== level._id);
-  state.placementHistory.push({ level, insertedAt: lo, compsDone: stepHistory.length });
+  state.placementHistory.push({ level, insertedAt, compsDone: stepHistory.length });
   state.insertionSession = null;
 
   checkContradictions();
@@ -261,6 +277,12 @@ export function moveLevel(targetIdx, newIdx) {
   const level = state.rankedList[targetIdx];
   state.rankedList.splice(targetIdx, 1);
   state.rankedList.splice(newIdx, 0, level);
+  let rank = 0;
+  state.rankedList.forEach(item => {
+    if (isRankedVariant(item)) return;
+    rank++;
+    if (Object.prototype.hasOwnProperty.call(item, 'rank')) item.rank = rank;
+  });
   saveSession();
   triggerRender();
 }
@@ -307,6 +329,18 @@ export function deleteLevel(levelId) {
     saveSession();
     triggerRender();
     showToast(`"${level.name}" deleted`);
+    return;
+  }
+
+  const variant = state.levelMap.get(levelId);
+  if (variant && !variant.pending && isRankedVariant(variant)) {
+    const rawIdx = state.rawLevels.findIndex(level => level._id === levelId);
+    if (rawIdx !== -1) state.rawLevels.splice(rawIdx, 1);
+    state.levelMap.delete(levelId);
+    clearComparisonsFor(levelId);
+    saveSession();
+    triggerRender();
+    showToast(`"${variant.name}" deleted`);
   }
 }
 
@@ -370,6 +404,7 @@ export function saveSession() {
       presetSourceUrl: state.presetSourceUrl,
       presetDataHash: state.presetDataHash,
       lastUpdateCheck: state.lastUpdateCheck,
+      lastImportWasArray: state.lastImportWasArray === true,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
   } catch (_) { }
@@ -383,10 +418,34 @@ export function loadSession() {
     if (!Array.isArray(data.rawLevels) || data.rawLevels.length < 1) return false;
 
     state.rawLevels = data.rawLevels.map(l => ({ ...l }));
+    state.rawLevels.forEach(level => {
+      if (isRankedVariant(level)) level.pending = false;
+    });
     state.levelMap = new Map(state.rawLevels.map(l => [l._id, l]));
     state.compCount = data.compCount ?? 0;
-    state.rankedList = (data.rankedListIds ?? []).map(id => state.levelMap.get(id)).filter(Boolean);
-    state.pendingLevels = (data.pendingLevelIds ?? []).map(id => state.levelMap.get(id)).filter(Boolean);
+    const savedRankedLevels = (data.rankedListIds ?? [])
+      .map(id => state.levelMap.get(id))
+      .filter(Boolean);
+    state.rankedList = savedRankedLevels.filter(level => !isRankedVariant(level));
+    const savedPendingIds = new Set(data.pendingLevelIds ?? []);
+    const previouslyHiddenUnassignedVariants = state.rawLevels.filter(level =>
+      !level.pending &&
+      !savedPendingIds.has(level._id) &&
+      !state.rankedList.some(ranked => ranked._id === level._id) &&
+      typeof level.duplicateOf === 'string' &&
+      level.duplicateOf.trim() &&
+      !isRankedVariant(level)
+    );
+    previouslyHiddenUnassignedVariants.forEach(level => {
+      const rawIndex = state.rawLevels.indexOf(level);
+      const rankedIndex = Number.isFinite(level.rank)
+        ? state.rankedList.findIndex(ranked => Number.isFinite(ranked.rank) && ranked.rank > level.rank)
+        : state.rankedList.findIndex(ranked => state.rawLevels.indexOf(ranked) > rawIndex);
+      state.rankedList.splice(rankedIndex === -1 ? state.rankedList.length : rankedIndex, 0, level);
+    });
+    state.pendingLevels = (data.pendingLevelIds ?? [])
+      .map(id => state.levelMap.get(id))
+      .filter(level => level && !isRankedVariant(level));
     state.customValues = (data.customValues ?? []).map(value => ({
       ...value,
       filterable: value.filterable !== false,
@@ -399,12 +458,14 @@ export function loadSession() {
     state.detectedColumns = Array.isArray(data.detectedColumns) ? data.detectedColumns.slice() : [];
     state.detectedColumnsOrder = data.detectedColumnsOrder ?? {};
     state.hiddenColumns = Array.isArray(data.hiddenColumns) ? data.hiddenColumns.slice() : [];
+    state.lastImportWasArray = data.lastImportWasArray === true;
 
     state.placementHistory = (data.placementHistory ?? [])
       .map(p => {
         const level = state.levelMap.get(p.levelId);
-        if (!level) return null;
-        return { level, insertedAt: p.insertedAt, compsDone: p.compsDone };
+        const insertedAt = state.rankedList.findIndex(item => item._id === p.levelId);
+        if (!level || insertedAt === -1) return null;
+        return { level, insertedAt, compsDone: p.compsDone };
       })
       .filter(Boolean);
 
@@ -414,12 +475,18 @@ export function loadSession() {
 
     if (data.insertionSession) {
       const sessionLevel = state.levelMap.get(data.insertionSession.levelId);
-      if (sessionLevel) {
+      if (sessionLevel && !isRankedVariant(sessionLevel)) {
+        const toOrdinaryBoundary = boundary => savedRankedLevels
+          .slice(0, boundary)
+          .filter(level => !isRankedVariant(level)).length;
         state.insertionSession = {
           level: sessionLevel,
-          lo: data.insertionSession.lo,
-          hi: data.insertionSession.hi,
-          stepHistory: [...(data.insertionSession.stepHistory ?? [])],
+          lo: toOrdinaryBoundary(data.insertionSession.lo),
+          hi: toOrdinaryBoundary(data.insertionSession.hi),
+          stepHistory: (data.insertionSession.stepHistory ?? []).map(step => ({
+            lo: toOrdinaryBoundary(step.lo),
+            hi: toOrdinaryBoundary(step.hi),
+          })),
           minConfidence: data.insertionSession.minConfidence ?? CONFIDENCE_LEVELS.CERTAIN,
         };
       }
@@ -457,7 +524,7 @@ export function hideImportError(panelId = 'main') {
 function sortLevelsForRankings(levels) {
   return levels
     .map((level, index) => ({ level, originalIndex: index }))
-    .filter(({ level }) => !level.pending)
+    .filter(({ level }) => !level.pending && !isRankedVariant(level))
     .sort((a, b) => {
       const aRank = Number.isFinite(a.level.rank) ? a.level.rank : null;
       const bRank = Number.isFinite(b.level.rank) ? b.level.rank : null;
@@ -503,12 +570,21 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
 
   const hasExistingLevels = state.rawLevels.length > 0;
 
-  if (hasExistingLevels && !shouldAppend && !forceMode && state.settings.confirmImportOverwrite) {
-    const choice = confirm(
-      'You already have levels loaded.\n\nOK = Overwrite session (start fresh)\nCancel = Append to existing session'
-    );
-    if (choice === null) return;
-    forceMode = choice ? 'replace' : 'append';
+  if (hasExistingLevels && !shouldAppend && !forceMode) {
+    const behavior = state.settings.existingImportBehavior || 'ask';
+    if (behavior === 'append') {
+      shouldAppend = true;
+    } else if (behavior === 'replace') {
+      forceMode = 'replace';
+    } else if (state.settings.confirmImportOverwrite) {
+      const choice = confirm(
+        'You already have levels loaded.\n\nOK = Overwrite session (start fresh)\nCancel = Append to existing session'
+      );
+      if (choice === null) return;
+      forceMode = choice ? 'replace' : 'append';
+    } else {
+      forceMode = 'replace';
+    }
   }
 
   if (forceMode === 'append') shouldAppend = true;
@@ -517,9 +593,8 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
   const existingLevels = shouldAppend ? state.rawLevels : [];
   const beforeDedupCount = valid.length;
   valid = removeDuplicateLevels(valid, existingLevels);
-  const removedCount = beforeDedupCount - valid.length;
-  if (removedCount > 0) {
-    showToast(`Skipped ${removedCount} duplicate level(s) during import.`, 'gold');
+  if (beforeDedupCount > valid.length) {
+    showToast(`Skipped ${beforeDedupCount - valid.length} duplicate level(s) during import.`, 'gold');
   }
 
   if (valid.length === 0) {
@@ -531,13 +606,16 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
   if (shouldAppend && hasExistingLevels) {
     newRawLevels = [
       ...state.rawLevels,
-      ...valid.map((l, i) => ({ ...l, _id: l._id ?? makeLevelId(l, state.rawLevels.length + i) })),
+      ...valid.map((l, i) => ({ ...l, _id: makeLevelId(l, state.rawLevels.length + i) })),
     ];
   } else {
-    newRawLevels = valid.map((l, i) => ({ ...l, _id: l._id ?? makeLevelId(l, i) }));
+    newRawLevels = valid.map((l, i) => ({ ...l, _id: makeLevelId(l, i) }));
   }
 
   state.rawLevels = newRawLevels;
+  state.rawLevels.forEach(level => {
+    if (isRankedVariant(level)) level.pending = false;
+  });
   state.levelMap = new Map(state.rawLevels.map(l => [l._id, l]));
 
   detectColumnsFromLevels();
@@ -555,7 +633,7 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
   state.rankedList = sortLevelsForRankings(state.rawLevels);
   state.selectedLevels = new Set();
 
-  state.pendingLevels = state.rawLevels.filter(l => l.pending);
+  state.pendingLevels = state.rawLevels.filter(l => l.pending && !isRankedVariant(l));
 
   if (!shouldAppend) {
     clearSession();
@@ -573,14 +651,15 @@ export function processLevels(levelsArray, importTarget = 'main', shouldAppend =
 
   switchToTab('comparison');
   triggerRender();
+  const rankedCount = state.rankedList.length;
 
   if (shouldAppend) {
     showToast(
-      `Appended ${valid.length} level(s) — Total: ${state.rawLevels.length} (${state.rankedList.length} ranked, ${state.pendingLevels.length} pending)`
+      `Appended ${valid.length} level(s) — Total: ${state.rawLevels.length} (${rankedCount} ranked, ${state.pendingLevels.length} pending)`
     );
   } else {
     showToast(
-      `Loaded ${state.rawLevels.length} levels (${state.rankedList.length} ranked, ${state.pendingLevels.length} pending)`
+      `Loaded ${state.rawLevels.length} levels (${rankedCount} ranked, ${state.pendingLevels.length} pending)`
     );
   }
 
@@ -662,6 +741,7 @@ export function reset() {
   state.selectedLevels = new Set();
   state.detectedColumns = [];
   state.detectedColumnsOrder = {};
+  state.lastImportWasArray = false;
   clearSession();
 
   const filterInput = document.getElementById('filter-input');
@@ -685,51 +765,66 @@ export function reset() {
   triggerRender();
 }
 
-export function getRankingsExport() {
-
-  if (state.lastImportWasArray) {
-    return state.rankedList.map(level => {
-      const out = {};
-      Object.keys(level).forEach(k => {
-        if (['_id', 'pending', 'lowConfidence', 'confidence', 'lastEdited'].includes(k)) return;
-        if (k === 'customValues') return;
-
-        const value = level[k];
-        if (value === null || value === undefined || value === '') return;
-        out[k] = value;
-      });
-
-      state.customValues.forEach(value => {
-        if (!value.exportable) return;
-        const customVal = level.customValues?.[value.id];
-        if (customVal != null && customVal !== '') out[value.name] = customVal;
-      });
-      return cleanExportObject(out);
-    });
+function normalizeEmptyExportValue(value) {
+  if (value === '') return null;
+  if (Array.isArray(value)) return value.map(normalizeEmptyExportValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, childValue]) => [
+      key,
+      normalizeEmptyExportValue(childValue),
+    ]));
   }
+  return value;
+}
 
-  return state.rankedList.map((level, idx) => {
-    const exportObj = { rank: idx + 1 };
-    state.detectedColumns.forEach(col => {
-      if (col === 'confidence' || col === 'lastEdited') return;
-      const value = level[col];
-      if (col === 'tags' && Array.isArray(value)) {
-        const tags = value.join(', ').trim();
-        if (tags !== '') exportObj[col] = tags;
-      } else if (value !== null && value !== undefined && value !== '') {
-        exportObj[col] = value;
-      }
+export function getRankingsExport() {
+  const internalFields = new Set(['_id', 'pending', 'lowConfidence', 'confidence', 'lastEdited', 'customValues']);
+  const variants = state.rawLevels.filter(level => !level.pending && isRankedVariant(level));
+  const variantsByTarget = new Map();
+  variants.forEach(level => {
+    const target = level.duplicateOf;
+    if (!variantsByTarget.has(target)) variantsByTarget.set(target, []);
+    variantsByTarget.get(target).push(level);
+  });
+  variantsByTarget.forEach(group => group.sort((a, b) => {
+    const aRank = Number.isFinite(a.rank) ? a.rank : Number.POSITIVE_INFINITY;
+    const bRank = Number.isFinite(b.rank) ? b.rank : Number.POSITIVE_INFINITY;
+    return aRank - bRank || state.rawLevels.indexOf(a) - state.rawLevels.indexOf(b);
+  }));
+  const levels = state.rankedList.flatMap(level => {
+    const name = level.name;
+    return [level, ...(variantsByTarget.get(name) ?? [])];
+  });
+  const exportedIds = new Set(levels.map(level => level._id));
+  levels.push(...variants.filter(level => !exportedIds.has(level._id)));
+  const exportedLevels = state.settings.includePendingInExport
+    ? [...levels, ...state.pendingLevels]
+    : levels;
+  return exportedLevels.map((level, idx) => {
+    const isPending = level.pending === true;
+    const exportObj = state.lastImportWasArray || isPending ? {} : { rank: idx + 1 };
+    Object.keys(level).forEach(key => {
+      if (internalFields.has(key)) return;
+      Object.defineProperty(exportObj, key, {
+        value: normalizeEmptyExportValue(level[key]),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
     });
-    if (level.showcaseVideo != null && level.showcaseVideo !== '' && exportObj.showcaseVideo == null) {
-      exportObj.showcaseVideo = level.showcaseVideo;
-    }
     state.customValues.forEach(value => {
       if (!value.exportable) return;
       const customVal = level.customValues?.[value.id];
-      if (customVal != null && customVal !== '') exportObj[value.name] = customVal;
+      if (customVal !== undefined) {
+        Object.defineProperty(exportObj, value.name, {
+          value: normalizeEmptyExportValue(customVal),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      }
     });
-
-    return cleanExportObject(exportObj);
+    return exportObj;
   });
 }
 
@@ -882,16 +977,17 @@ export function mergePresetUpdates(diff) {
   for (const newLevel of diff.added) {
     const newId = makeLevelId(newLevel, state.rawLevels.length);
     const levelWithId = { ...newLevel, _id: newId };
+    if (isRankedVariant(levelWithId)) levelWithId.pending = false;
     state.rawLevels.push(levelWithId);
     state.levelMap.set(newId, levelWithId);
-    if (!newLevel.pending && !newLevel.rank) {
+    if (!isRankedVariant(levelWithId) && !newLevel.pending && !newLevel.rank) {
       state.pendingLevels.push(levelWithId);
     }
     mergedCount++;
   }
 
   state.rankedList = sortLevelsForRankings(state.rawLevels);
-  state.pendingLevels = state.rawLevels.filter(l => l.pending);
+  state.pendingLevels = state.rawLevels.filter(l => l.pending && !isRankedVariant(l));
 
   return mergedCount;
 }

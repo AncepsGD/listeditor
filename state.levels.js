@@ -1,15 +1,11 @@
 export function makeLevelId(nameOrLevel, index = 0) {
-  if (nameOrLevel && typeof nameOrLevel === 'object') {
-    const actualId = nameOrLevel._id ?? nameOrLevel.id ?? nameOrLevel.levelId ?? nameOrLevel.levelID ?? nameOrLevel.gdId ?? null;
-    if (actualId != null && String(actualId).trim()) {
-      const normalized = String(actualId).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-      return `level_${normalized}`;
-    }
-    return makeLevelId(nameOrLevel.name ?? '', index);
-  }
-
-  const slug = String(nameOrLevel).toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20);
-  return `${slug}_${index}_${Date.now()}`;
+  const name = nameOrLevel && typeof nameOrLevel === 'object'
+    ? nameOrLevel.name ?? ''
+    : nameOrLevel;
+  const slug = String(name).toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20) || 'level';
+  const uniqueToken = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}_${index}_${Math.random().toString(36).slice(2)}`;
+  return `level_${slug}_${uniqueToken}`;
 }
 
 export function normalizeLevelObject(obj) {
@@ -19,7 +15,7 @@ export function normalizeLevelObject(obj) {
 
   const rawName = [obj.name, obj.level, obj.title].find(value => value != null && String(value).trim() !== '');
   const name = rawName ? String(rawName).trim() : '';
-  const rawId = obj.id ?? obj.levelID ?? null;
+  const rawSourceId = obj.id ?? obj.levelID ?? obj.levelId ?? obj.gdId ?? null;
   const rawRank = obj.rank ?? null;
   const parsedRank = rawRank != null
     ? (Number.isFinite(Number(rawRank)) ? Number(rawRank) : parseInt(String(rawRank).replace(/[^0-9]/g, ''), 10) || null)
@@ -29,11 +25,7 @@ export function normalizeLevelObject(obj) {
     ? (Number.isFinite(Number(rawGdId)) ? Number(rawGdId) : parseInt(String(rawGdId).replace(/[^0-9]/g, ''), 10) || null)
     : null;
 
-  const result = { name };
-
-  if (rawId != null && String(rawId).trim()) {
-    result.id = rawId;
-  }
+  const result = { ...obj, name };
 
   if (parsedRank !== null) {
     result.rank = parsedRank;
@@ -43,7 +35,7 @@ export function normalizeLevelObject(obj) {
     result.tags = obj.tags;
   }
 
-  result.pending = obj.pending ?? (rawId == null && parsedRank == null);
+  result.pending = obj.pending ?? (rawSourceId == null && parsedRank == null);
 
   if (obj.confidence != null && obj.confidence !== '') {
     result.confidence = obj.confidence;

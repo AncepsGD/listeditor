@@ -10,10 +10,11 @@
   <title>External List Editor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
   <link
-    href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=Barlow:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20260803">
+  <link rel="stylesheet" href="styles.css?v=20261006">
 </head>
 
 <body>
@@ -32,17 +33,15 @@
       <span class="logo-title">External List Editor</span>
     </div>
     <div class="header-actions">
-      <button id="columns-btn" class="btn" title="Manage Columns">📋 Columns</button>
-      <button id="custom-values-btn" class="btn" title="Manage Custom Values">📊 Custom Values</button>
       <button id="settings-btn" class="btn" title="Settings">⚙ Settings</button>
       <button id="reset-btn" class="btn btn-danger hidden">↺ Reset</button>
       <div class="export-dropdown-wrap">
         <button id="export-main-btn" class="btn btn-success" title="Export options">⬇ Export ▾</button>
         <div id="export-menu" class="export-menu hidden">
-          <button class="export-menu-item" id="export-json-copy">📋 Copy JSON</button>
-          <button class="export-menu-item" id="export-json-download">💾 Download JSON</button>
-          <button class="export-menu-item" id="export-csv-copy">📋 Copy CSV</button>
-          <button class="export-menu-item" id="export-csv-download">💾 Download CSV</button>
+          <button class="export-menu-item" id="export-json-copy"><i class="fa-regular fa-copy" aria-hidden="true"></i> Copy JSON</button>
+          <button class="export-menu-item" id="export-json-download"><i class="fa-solid fa-download" aria-hidden="true"></i> Download JSON</button>
+          <button class="export-menu-item" id="export-csv-copy"><i class="fa-regular fa-copy" aria-hidden="true"></i> Copy CSV</button>
+          <button class="export-menu-item" id="export-csv-download"><i class="fa-solid fa-download" aria-hidden="true"></i> Download CSV</button>
         </div>
       </div>
     </div>
@@ -65,7 +64,7 @@
         </div>
         <div class="drop-zone" data-type="main" id="drop-zone-main">
           <input type="file" class="file-input" accept=".json,.txt,.csv" data-type="main" id="file-input-main" />
-          <span class="dropzone-icon">📁</span>
+          <span class="dropzone-icon"><i class="fa-solid fa-folder-open" aria-hidden="true"></i></span>
           <div class="dropzone-title">Drop file here or click to browse</div>
           <div class="dropzone-sub">.json .txt .csv</div>
         </div>
@@ -103,7 +102,7 @@
         </div>
         <div class="drop-zone" data-type="pending" id="drop-zone-pending">
           <input type="file" class="file-input" accept=".json,.txt,.csv" data-type="pending" id="file-input-pending" />
-          <span class="dropzone-icon">📁</span>
+          <span class="dropzone-icon"><i class="fa-solid fa-folder-open" aria-hidden="true"></i></span>
           <div class="dropzone-title">Drop file here or click to browse</div>
           <div class="dropzone-sub">.json .txt .csv</div>
         </div>
@@ -130,7 +129,7 @@
         </div>
         <div class="drop-zone" data-type="replace" id="drop-zone-replace">
           <input type="file" class="file-input" accept=".json,.txt,.csv" data-type="replace" id="file-input-replace" />
-          <span class="dropzone-icon">📁</span>
+          <span class="dropzone-icon"><i class="fa-solid fa-folder-open" aria-hidden="true"></i></span>
           <div class="dropzone-title">Drop file here or click to browse</div>
           <div class="dropzone-sub">.json .txt .csv</div>
         </div>
@@ -173,8 +172,8 @@
         </div>
 
         <div class="session-top-actions">
-          <button id="replace-main-btn" class="btn btn-warning">🔄 Replace Main List</button>
-          <button id="import-pending-btn" class="btn btn-primary">⬆ Import Pending List</button>
+          <button id="replace-main-btn" class="btn btn-primary"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Replace Main List</button>
+          <button id="import-pending-btn" class="btn btn-primary"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import Pending List</button>
         </div>
 
         <div class="keyboard-hint">
@@ -270,7 +269,7 @@
             </div>
             <div class="field-group">
               <label class="field-label" for="weight">Weight per qualifying run</label>
-              <input type="number" id="weight" class="field-input" value="24.5" step="0.5">
+              <input type="number" id="weight" class="field-input" value="7.5" step="0.5">
             </div>
             <div class="field-group">
               <label class="field-label" for="decay">Decay (rank 3+)</label>
@@ -290,7 +289,7 @@
             </div>
             <div class="field-group">
               <label class="field-label" for="exp">Difficulty Exponent (K)</label>
-              <input type="number" id="exp" class="field-input" value="1.2" step="0.1" min="0.5" max="5">
+              <input type="number" id="exp" class="field-input" value="2.4" step="0.1" min="0.5" max="5">
             </div>
             <div class="field-group">
               <label class="field-label" for="fillerThreshold">Filler Threshold (% of peak)</label>
@@ -390,46 +389,19 @@
             <span id="rank-info" class="rank-info"></span>
           </div>
           <div class="rankings-header-actions">
-            <input type="text" id="filter-input" class="filter-input" />
-            <select id="remove-column-select" class="field-input" style="margin-right: 10px;">
-              <option value="">Remove Column...</option>
-            </select>
-            <button id="reeval-range-btn" class="btn">Re-evaluate Range</button>
+            <input type="text" id="filter-input" class="filter-input" placeholder="Search levels and data…" />
+            <button id="bulk-fields-btn" class="btn">Bulk Fields</button>
+            <button id="rankings-add-level-btn" class="btn btn-primary">＋ Add Level</button>
           </div>
         </div>
 
         <div id="rankings-summary" class="rankings-summary"></div>
 
-        <div id="reeval-panel" class="hidden">
-          <div class="reeval-controls">
-            <input type="number" id="reeval-from" placeholder="From position" min="1">
-            <input type="number" id="reeval-to" placeholder="To position" min="1">
-            <span id="reeval-info"></span>
-            <button id="reeval-confirm" class="btn btn-primary">Confirm</button>
-            <button id="reeval-cancel" class="btn">Cancel</button>
-          </div>
-        </div>
-
-        <div id="bulk-toolbar" class="bulk-toolbar hidden">
-          <span id="bulk-count" class="bulk-count">0 selected</span>
-          <button id="bulk-reeval-btn" class="btn btn-warning">↺ Re-rank Selected</button>
-          <button id="bulk-delete-btn" class="btn btn-danger">✕ Delete Selected</button>
-          <button id="bulk-clear-btn" class="btn">✕ Clear Selection</button>
-        </div>
 
         <div id="contradiction-panel"></div>
 
-        <div id="rankings-table-wrapper">
-          <table class="rankings-table">
-            <thead>
-              <tr>
-                <th class="cb-cell"><input type="checkbox" id="select-all-rows" title="Select all"></th>
-                <th></th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="rankings-body"></tbody>
-          </table>
+        <div id="rankings-list-wrapper">
+          <div id="rankings-body" class="rankings-list"></div>
         </div>
       </section>
     </div>
@@ -437,35 +409,21 @@
   </main>
 
   <div id="level-modal" class="modal-overlay">
-    <div class="modal">
+    <div class="modal level-editor-modal">
       <div class="modal-header">
         <h3 id="modal-title">Edit Level</h3>
         <button class="modal-close" id="modal-close-btn">✕</button>
       </div>
       <div class="modal-body">
-        <div class="field-group">
-          <label class="field-label" for="modal-name">Level Name *</label>
-          <input type="text" id="modal-name" class="field-input" autocomplete="off">
+        <p class="editor-form-hint">Edit every value, including nested object properties and array items. Values retain their JSON types.</p>
+        <div class="editor-fields-heading">
+          <h4>Level data</h4>
+          <span id="modal-field-count"></span>
         </div>
-        <div class="field-group">
-          <label class="field-label" for="modal-creators">Creator(s)</label>
-          <input type="text" id="modal-creators" class="field-input" autocomplete="off">
-        </div>
-        <div class="field-group">
-          <label class="field-label" for="modal-video">Showcase Video URL</label>
-          <input type="text" id="modal-video" class="field-input" autocomplete="off">
-          <div id="modal-thumb-preview" class="thumb-preview"></div>
-        </div>
-        <div class="field-group">
-          <label class="field-label" for="modal-listid">Original List Name</label>
-          <input type="text" id="modal-listid" class="field-input" autocomplete="off"
-            placeholder="Optional reference name">
-        </div>
-        <div class="field-group">
-        </div>
-        <div class="field-group">
-          <label class="field-label" for="modal-victors">Victors (JSON)</label>
-          <textarea id="modal-victors" class="field-input field-textarea"></textarea>
+        <div id="modal-fields" class="editor-fields"></div>
+        <div class="editor-add-field">
+          <input type="text" id="modal-new-field-name" class="field-input" placeholder="New field name">
+          <button class="btn" id="modal-add-field" type="button">＋ Add field</button>
         </div>
         <div class="field-group" id="modal-status-group">
           <label class="field-label">Add to</label>
@@ -516,6 +474,26 @@
         </div>
 
         <div class="settings-section">
+          <h4>Import & Export</h4>
+          <div class="setting-item">
+            <label class="setting-label" for="existing-import-behavior">
+              <span>When importing into a loaded session</span>
+              <select id="existing-import-behavior" class="field-input">
+                <option value="ask">Ask whether to replace or append</option>
+                <option value="replace">Always replace existing levels</option>
+                <option value="append">Always append new levels</option>
+              </select>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="include-pending-in-export">
+              <span>Include pending levels after ranked levels in exports</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h4>Drag & Drop</h4>
           <div class="setting-item">
             <label class="setting-label">
@@ -526,17 +504,23 @@
         </div>
 
         <div class="settings-section">
-          <h4>Inline Editing</h4>
+          <h4>Level Editor</h4>
           <div class="setting-item">
             <label class="setting-label">
-              <input type="radio" name="inline-edit-mode" value="single" checked>
-              <span>Single-click to edit</span>
+              <input type="checkbox" id="show-json-field-names" checked>
+              <span>Show JSON field names under editor labels</span>
             </label>
           </div>
           <div class="setting-item">
             <label class="setting-label">
-              <input type="radio" name="inline-edit-mode" value="double">
-              <span>Double-click to edit</span>
+              <input type="checkbox" id="show-ranking-thumbnails" checked>
+              <span>Show thumbnails on ranked level cards</span>
+            </label>
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">
+              <input type="checkbox" id="expand-ranking-details">
+              <span>Expand level data fields on ranked cards by default</span>
             </label>
           </div>
         </div>
@@ -636,6 +620,36 @@
     </div>
   </div>
 
+  <div id="bulk-fields-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Bulk Field Editor</h3>
+        <button class="modal-close" id="bulk-fields-close-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="editor-form-hint">Enter one field name per line. "Add" creates blank fields on every level and keeps existing values. The "Remove" option deletes the fields and their associated values from every level.</p>
+        <label class="field-label" for="bulk-fields-input">Field names</label>
+        <textarea id="bulk-fields-input" class="field-input field-textarea" rows="8" placeholder="fieldOne&#10;fieldTwo"></textarea>
+        <div class="bulk-field-rename">
+          <div>
+            <label class="field-label" for="bulk-field-rename-from">Rename field</label>
+            <input id="bulk-field-rename-from" class="field-input" type="text" placeholder="Current field name">
+          </div>
+          <div>
+            <label class="field-label" for="bulk-field-rename-to">New name</label>
+            <input id="bulk-field-rename-to" class="field-input" type="text" placeholder="New field name">
+          </div>
+          <button class="btn" id="bulk-fields-rename-btn">Rename across all levels</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="bulk-fields-add-btn">＋ Add to all levels</button>
+        <button class="btn btn-danger" id="bulk-fields-remove-btn">Remove from all levels</button>
+        <button class="btn" id="bulk-fields-cancel-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="update-preview-modal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
@@ -655,25 +669,25 @@
 
   <div id="toast"></div>
 
-  <script type="module" src="state.js?v=20260803"></script>
-  <script type="module" src="state.utils.js?v=20260803"></script>
-  <script type="module" src="state.levels.js?v=20260803"></script>
-  <script type="module" src="state.config.js?v=20260803"></script>
-  <script type="module" src="state.fields.js?v=20260803"></script>
-  <script type="module" src="state.settings.js?v=20260803"></script>
-  <script type="module" src="state.columns.js?v=20260803"></script>
-  <script type="module" src="state.custom.js?v=20260803"></script>
-  <script type="module" src="state.schema.js?v=20260803"></script>
+  <script type="module" src="state.js?v=20261002"></script>
+  <script type="module" src="state.utils.js?v=20261002"></script>
+  <script type="module" src="state.levels.js?v=20261002"></script>
+  <script type="module" src="state.config.js?v=20261002"></script>
+  <script type="module" src="state.fields.js?v=20261002"></script>
+  <script type="module" src="state.settings.js?v=20261002"></script>
+  <script type="module" src="state.columns.js?v=20261002"></script>
+  <script type="module" src="state.custom.js?v=20261002"></script>
+  <script type="module" src="state.schema.js?v=20261002"></script>
 
-  <script type="module" src="logic.js?v=20260803"></script>
-  <script type="module" src="render.utils.js?v=20260803"></script>
-  <script type="module" src="render.rows.js?v=20260803"></script>
-  <script type="module" src="render.split.js?v=20260803"></script>
-  <script type="module" src="render.modals.js?v=20260803"></script>
-  <script type="module" src="render.table.js?v=20260803"></script>
-  <script type="module" src="render.main.js?v=20260803"></script>
-  <script type="module" src="init.js?v=20260803"></script>
-  <script src="consistency.js?v=20260803"></script>
+  <script type="module" src="logic.js?v=20261002"></script>
+  <script type="module" src="render.utils.js?v=20261002"></script>
+  <script type="module" src="render.rows.js?v=20261002"></script>
+  <script type="module" src="render.split.js?v=20261002"></script>
+  <script type="module" src="render.modals.js?v=20261004"></script>
+  <script type="module" src="render.table.js?v=20261002"></script>
+  <script type="module" src="render.main.js?v=20261002"></script>
+  <script type="module" src="init.js?v=20261002"></script>
+  <script src="consistency.js?v=20261002"></script>
 </body>
 
 </html>

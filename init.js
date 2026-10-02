@@ -9,7 +9,8 @@ import {
 } from './logic.js';
 import { renderAll } from './render.main.js';
 import {
-  openEditModal, openAddModal, closeModal, submitModal, updateModalThumb,
+  openEditModal, openAddModal, closeModal, submitModal, addModalField,
+  openBulkFieldsModal, closeBulkFieldsModal, addBulkFields, removeBulkFields, renameBulkField,
   openSettingsModal, closeSettingsModal, saveSettingsModal,
   openCustomValuesModal, closeCustomValuesModal, addCustomValueFromModal,
 } from './render.modals.js';
@@ -131,24 +132,6 @@ function applyConfigToDOM() {
       presetSelect.appendChild(opt);
     });
   }
-
-  const nameInput = document.getElementById('modal-name');
-  if (nameInput) nameInput.placeholder = config.fields.namePlaceholder;
-
-  const creatorsInput = document.getElementById('modal-creators');
-  if (creatorsInput) creatorsInput.placeholder = config.fields.creatorsPlaceholder;
-
-  const videoInput = document.getElementById('modal-video');
-  if (videoInput) videoInput.placeholder = config.fields.videoPlaceholder;
-
-  const listIdInput = document.getElementById('modal-listid');
-  if (listIdInput) listIdInput.placeholder = config.fields.listIdPlaceholder;
-
-  const notesInput = document.getElementById('modal-notes');
-  if (notesInput) notesInput.placeholder = config.fields.notesPlaceholder;
-
-  const victorsInput = document.getElementById('modal-victors');
-  if (victorsInput) victorsInput.placeholder = config.fields.victorsPlaceholder;
 
   const filterInput = document.getElementById('filter-input');
   if (filterInput) filterInput.placeholder = config.fields.filterPlaceholder;
@@ -328,7 +311,7 @@ function initializeUI() {
     }
   }
 
-  setupPanelImport('main', 'replace');
+  setupPanelImport('main', null);
   setupPanelImport('pending', 'append');
   setupPanelImport('replace', 'replace');
 
@@ -412,6 +395,8 @@ function initializeUI() {
   const undoBtn = document.getElementById('undo-btn');
   const cancelBtn = document.getElementById('skip-btn');
   const addLevelBtn = document.getElementById('add-level-btn');
+  const rankingsAddLevelBtn = document.getElementById('rankings-add-level-btn');
+  const bulkFieldsBtn = document.getElementById('bulk-fields-btn');
   const customValuesBtn = document.getElementById('custom-values-btn');
   const columnsBtn = document.getElementById('columns-btn');
   const replaceMainBtn = document.getElementById('replace-main-btn');
@@ -424,8 +409,10 @@ function initializeUI() {
   if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
   if (customValuesBtn) customValuesBtn.addEventListener('click', openCustomValuesModal);
   if (columnsBtn) columnsBtn.addEventListener('click', openColumnsModal);
+  if (bulkFieldsBtn) bulkFieldsBtn.addEventListener('click', openBulkFieldsModal);
   if (undoBtn) undoBtn.addEventListener('click', undo);
   if (addLevelBtn) addLevelBtn.addEventListener('click', openAddModal);
+  if (rankingsAddLevelBtn) rankingsAddLevelBtn.addEventListener('click', openAddModal);
 
   if (replaceMainBtn) {
     replaceMainBtn.addEventListener('click', () => {
@@ -445,19 +432,6 @@ function initializeUI() {
     backFromPendingBtn.addEventListener('click', () => showImportSubPanel(null));
   }
 
-  const removeColumnSelect = document.getElementById('remove-column-select');
-  if (removeColumnSelect) {
-    removeColumnSelect.addEventListener('change', (e) => {
-      const columnName = e.target.value;
-      if (columnName) {
-        hideColumn(columnName);
-        renderAll();
-        saveSession();
-        e.target.value = '';
-      }
-    });
-  }
-
   if (backFromReplaceBtn) {
     backFromReplaceBtn.addEventListener('click', () => showImportSubPanel(null));
   }
@@ -471,6 +445,19 @@ function initializeUI() {
   const modalSaveBtn = document.getElementById('modal-save');
   if (modalSaveBtn) modalSaveBtn.addEventListener('click', submitModal);
 
+  const modalAddFieldBtn = document.getElementById('modal-add-field');
+  if (modalAddFieldBtn) modalAddFieldBtn.addEventListener('click', addModalField);
+
+  const modalNewFieldName = document.getElementById('modal-new-field-name');
+  if (modalNewFieldName) {
+    modalNewFieldName.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addModalField();
+      }
+    });
+  }
+
   const modalOverlay = document.getElementById('level-modal');
   if (modalOverlay) {
     modalOverlay.addEventListener('click', e => {
@@ -478,9 +465,31 @@ function initializeUI() {
     });
     modalOverlay.addEventListener('keydown', e => {
       if (e.key === 'Escape') closeModal();
-      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'INPUT') {
+      if (e.key === 'Enter' && e.target.id === 'modal-new-field-name') return;
+      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') {
+        e.preventDefault();
         submitModal();
       }
+    });
+  }
+
+  const bulkFieldsCloseBtn = document.getElementById('bulk-fields-close-btn');
+  const bulkFieldsCancelBtn = document.getElementById('bulk-fields-cancel-btn');
+  const bulkFieldsAddBtn = document.getElementById('bulk-fields-add-btn');
+  const bulkFieldsRemoveBtn = document.getElementById('bulk-fields-remove-btn');
+  const bulkFieldsRenameBtn = document.getElementById('bulk-fields-rename-btn');
+  const bulkFieldsModal = document.getElementById('bulk-fields-modal');
+  if (bulkFieldsCloseBtn) bulkFieldsCloseBtn.addEventListener('click', closeBulkFieldsModal);
+  if (bulkFieldsCancelBtn) bulkFieldsCancelBtn.addEventListener('click', closeBulkFieldsModal);
+  if (bulkFieldsAddBtn) bulkFieldsAddBtn.addEventListener('click', addBulkFields);
+  if (bulkFieldsRemoveBtn) bulkFieldsRemoveBtn.addEventListener('click', removeBulkFields);
+  if (bulkFieldsRenameBtn) bulkFieldsRenameBtn.addEventListener('click', renameBulkField);
+  if (bulkFieldsModal) {
+    bulkFieldsModal.addEventListener('click', event => {
+      if (event.target === bulkFieldsModal) closeBulkFieldsModal();
+    });
+    bulkFieldsModal.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeBulkFieldsModal();
     });
   }
 
@@ -589,77 +598,6 @@ function initializeUI() {
       }
     }
   });
-
-  const modalVideoInput = document.getElementById('modal-video');
-  if (modalVideoInput) modalVideoInput.addEventListener('input', updateModalThumb);
-
-  const modalListidInput = document.getElementById('modal-listid');
-  if (modalListidInput) modalListidInput.addEventListener('input', updateModalThumb);
-
-  const modalNameInput = document.getElementById('modal-name');
-  if (modalNameInput) {
-    modalNameInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); submitModal(); }
-    });
-    modalNameInput.addEventListener('input', () => modalNameInput.classList.remove('error'));
-  }
-
-  const reevalRangeBtn = document.getElementById('reeval-range-btn');
-  const reevalPanel = document.getElementById('reeval-panel');
-
-  if (reevalRangeBtn && reevalPanel) {
-    reevalRangeBtn.addEventListener('click', () => {
-      reevalPanel.classList.toggle('hidden');
-      if (!reevalPanel.classList.contains('hidden')) {
-        document.getElementById('reeval-from')?.focus();
-      }
-    });
-  }
-
-  function updateReevalInfo() {
-    const infoEl = document.getElementById('reeval-info');
-    if (!infoEl) return;
-    const from = parseInt(document.getElementById('reeval-from')?.value);
-    const to = parseInt(document.getElementById('reeval-to')?.value);
-    if (!isNaN(from) && !isNaN(to) && from >= 1 && to >= from) {
-      const count = Math.min(to, state.rankedList.length) - Math.max(1, from) + 1;
-      infoEl.textContent = count > 0 ? `${count} level(s) affected` : 'No levels in that range';
-    } else {
-      infoEl.textContent = '';
-    }
-  }
-
-  document.getElementById('reeval-from')?.addEventListener('input', updateReevalInfo);
-  document.getElementById('reeval-to')?.addEventListener('input', updateReevalInfo);
-
-  const reevalConfirm = document.getElementById('reeval-confirm');
-  if (reevalConfirm) {
-    reevalConfirm.addEventListener('click', () => {
-      const from = parseInt(document.getElementById('reeval-from').value);
-      const to = parseInt(document.getElementById('reeval-to').value);
-      if (isNaN(from) || isNaN(to) || from < 1 || to < from) {
-        showToast('Invalid range — enter valid positions', 'danger');
-        return;
-      }
-      const count = Math.min(to, state.rankedList.length) - Math.max(1, from) + 1;
-      if (count <= 0) { showToast('No levels in that range', 'danger'); return; }
-      if (confirm(`Move ${count} level(s) at positions ${from}–${to} to pending for re-ranking?`)) {
-        reevaluateRange(from, to);
-        reevalPanel?.classList.add('hidden');
-        const fromEl = document.getElementById('reeval-from');
-        const toEl = document.getElementById('reeval-to');
-        const infoEl = document.getElementById('reeval-info');
-        if (fromEl) fromEl.value = '';
-        if (toEl) toEl.value = '';
-        if (infoEl) infoEl.textContent = '';
-      }
-    });
-  }
-
-  const reevalCancel = document.getElementById('reeval-cancel');
-  if (reevalCancel) {
-    reevalCancel.addEventListener('click', () => reevalPanel?.classList.add('hidden'));
-  }
 
   const filterInput = document.getElementById('filter-input');
   if (filterInput) {

@@ -5,7 +5,7 @@ export const IMAGE_URL_RE = /[/.](?:jpg|jpeg|png|gif|webp|svg|bmp)(?:\?|$)/i;
 export const IMAGE_HINT_RE = /(?:thumb|image|img|photo|pic|cdn|gdbrowser|ytimg)/;
 export const HTTP_RE = /^https?:\/\//;
 
-export const EMPTY_THUMB = Object.freeze({ primary: null, fallback: null });
+export const EMPTY_THUMB = Object.freeze({ primary: null, fallback: null, candidates: [] });
 
 const DATE_FORMATTER = new Intl.DateTimeFormat([], {
   year: "numeric",
@@ -15,19 +15,113 @@ const DATE_FORMATTER = new Intl.DateTimeFormat([], {
   minute: "2-digit",
 });
 
+function getYouTubeVideoId(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const str = value.trim();
+  const patterns = [
+    /(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)([a-zA-Z0-9_-]{11})/i,
+    /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})/i,
+    /^([a-zA-Z0-9_-]{11})$/,
+  ];
+  for (const pattern of patterns) {
+    const match = str.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function collectStringValues(value, entries = [], visited = new Set()) {
+  if (typeof value === 'string') {
+    entries.push(value);
+  } else if (value && typeof value === 'object' && !visited.has(value)) {
+    visited.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(item => collectStringValues(item, entries, visited));
+    } else {
+      Object.values(value).forEach(item => collectStringValues(item, entries, visited));
+    }
+  }
+  return entries;
+}
+
+function collectNamedImageValues(value, entries = [], visited = new Set()) {
+  if (!value || typeof value !== 'object' || visited.has(value)) return entries;
+  visited.add(value);
+  Object.entries(value).forEach(([key, child]) => {
+    if (/(?:image|thumbnail|thumb|img|photo|picture|pic)/i.test(key)) {
+      collectStringValues(child, entries);
+    } else {
+      collectNamedImageValues(child, entries, visited);
+    }
+  });
+  return entries;
+}
+
+function collectLevelIds(value, ids = [], visited = new Set()) {
+  if (!value || typeof value !== 'object' || visited.has(value)) return ids;
+  visited.add(value);
+  Object.entries(value).forEach(([key, child]) => {
+    const normalizedKey = key.replace(/[_\-\s]/g, '').toLowerCase();
+    if (['gdid', 'levelid', 'lvlid', 'id'].includes(normalizedKey)) {
+      if (child != null && /^\d+$/.test(String(child).trim())) {
+        ids.push({ key: normalizedKey, value: String(child).trim() });
+      }
+    } else {
+      collectLevelIds(child, ids, visited);
+    }
+  });
+  return ids;
+}
+
+function getImageCandidate(value, allowAnyHttpUrl = false) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return allowAnyHttpUrl || isImageUrl(trimmed) ? trimmed : null;
+}
+
 function computeLevelThumbnailUrls(level) {
-  const custom =
-    level.thumbnail ||
-    level.image ||
-    level.img ||
-    level.photo ||
-    null;
+  const levelIds = collectLevelIds(level);
+  const priority = { gdid: 0, levelid: 1, lvlid: 2, id: 3 };
+  const orderedLevelIds = levelIds
+    .sort((a, b) => priority[a.key] - priority[b.key])
+    .map(({ value }) => value);
+  const levelIdCandidates = [...new Set(orderedLevelIds)]
+    .map(levelId => `https://levelthumbs.prevter.me/thumbnail/${encodeURIComponent(levelId)}/small`);
+  const namedImages = collectNamedImageValues(level)
+    .map(value => getImageCandidate(value, true))
+    .filter(Boolean);
+  const allStrings = collectStringValues(level);
+  const otherImages = allStrings
+    .map(value => getImageCandidate(value))
+    .filter(Boolean);
 
-  const gd = level.gdId != null ? gdThumbUrl(level.gdId) : null;
+  const candidates = [...levelIdCandidates, ...namedImages, ...otherImages];
+  const seenVideoIds = new Set();
+  const videoUrls = allStrings
+    .map(value => ({ value, videoId: getYouTubeVideoId(value) }))
+    .filter(item => item.videoId && !seenVideoIds.has(item.videoId) && seenVideoIds.add(item.videoId));
 
-  if (custom) return { primary: custom, fallback: gd };
-  if (gd) return { primary: gd, fallback: null };
-  return EMPTY_THUMB;
+  videoUrls.forEach(({ videoId }) => {
+    candidates.push(
+      `https://raw.githubusercontent.com/AncepsGD/practice-mode-list/main/thumbnails/${videoId}.webp`,
+      `https://raw.githubusercontent.com/AncepsGD/practice-mode-list/main/thumbnails/${videoId}.png`,
+    );
+  });
+
+  levelIds.forEach(({ value }) => candidates.push(gdThumbUrl(value)));
+  videoUrls.forEach(({ videoId }) => {
+    candidates.push(`https://img.youtube.com/vi/${videoId}/hq1.jpg`);
+  });
+
+  const uniqueCandidates = [...new Set(candidates)];
+  return uniqueCandidates.length > 0
+    ? {
+        primary: uniqueCandidates[0],
+        fallback: uniqueCandidates[1] || null,
+        candidates: uniqueCandidates,
+      }
+    : EMPTY_THUMB;
 }
 
 export function getLevelThumbnailUrls(level) {
@@ -39,6 +133,21 @@ export function getLevelThumbnailUrls(level) {
 }
 
 export function handleThumbError() {
+  if (this.dataset.thumbnailCandidates !== undefined) {
+    try {
+      const remaining = JSON.parse(this.dataset.thumbnailCandidates);
+      if (Array.isArray(remaining) && remaining.length > 0) {
+        this.dataset.thumbnailCandidates = JSON.stringify(remaining.slice(1));
+        this.src = remaining[0];
+        return;
+      }
+    } catch (_) {
+      this.dataset.thumbnailCandidates = '';
+    }
+    this.closest(".thumb-wrap")?.classList.remove("has-thumb");
+    return;
+  }
+
   const fallback = this.dataset.fallback;
 
   if (fallback) {
@@ -65,7 +174,7 @@ if (typeof globalThis !== "undefined") {
 }
 
 export function setThumbElement(thumbEl, level) {
-  const { primary, fallback } = getLevelThumbnailUrls(level);
+  const { primary, fallback, candidates } = getLevelThumbnailUrls(level);
 
   thumbEl.replaceChildren();
 
@@ -78,6 +187,7 @@ export function setThumbElement(thumbEl, level) {
 
   const img = document.createElement("img");
   img.className = "thumb-img";
+  img.alt = level.name ? `Thumbnail for ${level.name}` : "Level thumbnail";
   img.src = primary;
   img.loading = "lazy";
   img.decoding = "async";
@@ -85,18 +195,25 @@ export function setThumbElement(thumbEl, level) {
   if (fallback) {
     img.dataset.fallback = fallback;
   }
+  if (candidates.length > 1) {
+    img.dataset.thumbnailCandidates = JSON.stringify(candidates.slice(1));
+  }
 
   img.onerror = handleThumbError;
   thumbEl.appendChild(img);
 }
 
 export function thumbInlineHtml(level) {
-  const { primary, fallback } = getLevelThumbnailUrls(level);
+  const { primary, fallback, candidates } = getLevelThumbnailUrls(level);
   if (!primary) return "";
 
   const fallbackAttr = fallback ? ` data-fallback="${escHtml(fallback)}"` : "";
+  const candidatesAttr = candidates.length > 1
+    ? ` data-thumbnail-candidates="${escHtml(JSON.stringify(candidates.slice(1)))}"`
+    : "";
 
-  return `<img src="${escHtml(primary)}"${fallbackAttr} class="thumb-img" loading="lazy" decoding="async" onerror="handleThumbError.call(this)">`;
+  const alt = level.name ? `Thumbnail for ${level.name}` : "Level thumbnail";
+  return `<img src="${escHtml(primary)}"${fallbackAttr}${candidatesAttr} class="thumb-img" alt="${escHtml(alt)}" loading="lazy" decoding="async" onerror="handleThumbError.call(this)">`;
 }
 
 export function formatTags(tags) {

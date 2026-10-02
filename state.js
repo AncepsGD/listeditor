@@ -28,7 +28,10 @@ export const state = {
   settings: {},
   columnLabels: {},
   rankingsScrollState: null,
+  resetRankingDetailsToDefault: false,
   rankingFilter: '',
+  lastImportWasArray: false,
+  dragSrcIdx: null,
 };
 
 export const {

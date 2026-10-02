@@ -1,6 +1,6 @@
 import { setThumbElement, thumbInlineHtml, formatTags, formatVictors, formatTimestamp, isImageUrl, getImageUrlForDisplay, formatCellValue, getLevelThumbnailUrls } from './render.utils.js';
 import { state, escHtml, getCustomValue, setCustomValue, getCustomField, getOrderedColumns, getFieldDefinition, hasColumn, addDetectedColumn, CONFIDENCE_LEVELS, ytId } from './state.js';
-import { getMid, vote, startInsertion, moveLevel, moveLevelUp, moveLevelDown, moveToPosition, deleteLevel, reevaluateRanked, showToast, resolveContradiction, saveSession } from './logic.js';
+import { getMid, getMidLevel, getOrdinaryRankedEntries, vote, startInsertion, moveLevel, moveLevelUp, moveLevelDown, moveToPosition, deleteLevel, reevaluateRanked, showToast, resolveContradiction, saveSession } from './logic.js';
 
 import { openEditModal } from './render.modals.js';
 import { renderRankings } from './render.table.js';
@@ -25,7 +25,7 @@ export function renderComparison() {
     if (confidenceBar) confidenceBar.style.display = 'none';
     if (progressEl) progressEl.textContent = '';
     if (emptyState) {
-      emptyState.style.display = state.pendingLevels.length === 0 && state.rankedList.length > 0
+      emptyState.style.display = state.pendingLevels.length === 0 && getOrdinaryRankedEntries().length > 0
         ? 'block' : 'none';
     }
     return;
@@ -51,7 +51,7 @@ export function renderComparison() {
   }
 
   const mid = getMid();
-  const midLevel = state.rankedList[mid];
+  const midLevel = getMidLevel();
   if (!midLevel) return;
 
   const newLevel = state.insertionSession.level;
@@ -112,7 +112,7 @@ export function renderPendingSelector() {
     </div>
     <div class="pending-grid">
       ${state.pendingLevels.map(level => {
-    const hasThumb = !!(level.thumbnail || level.image || level.img || level.photo || level.gdId != null || level.showcaseVideo);
+    const hasThumb = !!getLevelThumbnailUrls(level).primary;
     const inner = thumbInlineHtml(level);
     return `<div class="pending-card" data-id="${level._id}" role="button" tabindex="0">
           <div class="pending-thumb thumb-wrap ${hasThumb ? 'has-thumb' : 'no-thumb'}">${inner}</div>
@@ -227,7 +227,7 @@ export function renderStats() {
   const queueEl = document.getElementById('queue-count');
   if (compEl) compEl.textContent = state.compCount;
   if (skipEl) skipEl.textContent = state.placementHistory.length;
-  if (activeEl) activeEl.textContent = state.rankedList.length;
+  if (activeEl) activeEl.textContent = getOrdinaryRankedEntries().length;
   if (queueEl) queueEl.textContent = state.pendingLevels.length;
 }
 export { renderRankings };
