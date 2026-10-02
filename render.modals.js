@@ -967,29 +967,43 @@ function renderModalFields(level, valueTypes = {}) {
 
 export function addModalField() {
   const nameInput = document.getElementById('modal-new-field-name');
-  const key = nameInput?.value.trim();
-  if (!key) {
+  const names = [...new Set((nameInput?.value ?? '')
+    .split(/\r?\n/)
+    .map(name => name.trim())
+    .filter(Boolean))];
+  if (names.length === 0) {
     nameInput?.focus();
     return;
   }
-  if (isManagedField(key)) {
-    showToast(`"${key}" is reserved by the editor.`, 'danger');
-    return;
-  }
-  if (Array.from(document.querySelectorAll('#modal-fields .editor-field'))
-    .some(row => row.dataset.fieldKey === key)) {
-    showToast(`"${key}" is already in this record.`, 'danger');
+  const reserved = names.find(isManagedField);
+  if (reserved) {
+    showToast(`"${reserved}" is reserved by the editor.`, 'danger');
     return;
   }
 
   const container = document.getElementById('modal-fields');
-  const expectedType = inferExpectedFieldType(
-    state.rawLevels.filter(level => Object.prototype.hasOwnProperty.call(level, key)).map(level => level[key])
-  );
-  container.appendChild(createModalField(key, createBlankValue(expectedType), expectedType));
+  const existingNames = new Set(Array.from(container.querySelectorAll('.editor-field'))
+    .map(row => row.dataset.fieldKey));
+  const fieldsToAdd = names.filter(name => !existingNames.has(name));
+  if (fieldsToAdd.length === 0) {
+    showToast('Those fields are already in this record.', 'gold');
+    nameInput?.focus();
+    return;
+  }
+
+  fieldsToAdd.forEach(name => {
+    const expectedType = inferExpectedFieldType(
+      state.rawLevels.filter(level => Object.prototype.hasOwnProperty.call(level, name)).map(level => level[name])
+    );
+    container.appendChild(createModalField(name, createBlankValue(expectedType), expectedType));
+  });
   updateModalFieldCount();
   nameInput.value = '';
   container.lastElementChild?.querySelector('.structured-value-editor input, .structured-value-editor textarea, .structured-value-editor select')?.focus();
+  if (fieldsToAdd.length > 1 || fieldsToAdd.length < names.length) {
+    const skipped = names.length - fieldsToAdd.length;
+    showToast(`Added ${fieldsToAdd.length} field(s)${skipped ? `; skipped ${skipped} already in this record` : ''}.`);
+  }
 }
 
 function getBulkFieldNames() {
