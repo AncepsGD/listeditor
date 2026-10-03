@@ -40,7 +40,13 @@ export function openEditModal(levelId) {
   state.modalOriginalKeys = Object.keys(level).filter(key => !isManagedField(key));
 
   document.getElementById('modal-title').textContent = `Editing: ${level.name || 'Untitled'}`;
-  renderModalFields(level);
+  const rankedIdx = state.rankedList.findIndex(item => item._id === level._id);
+  const modalLevel = rankedIdx !== -1
+    && !isRankedVariant(level)
+    && Object.prototype.hasOwnProperty.call(level, 'rank')
+    ? { ...level, rank: rankedIdx + 1 }
+    : level;
+  renderModalFields(modalLevel);
   const formHint = document.querySelector('.editor-form-hint');
   if (formHint) {
     formHint.textContent = state.lastImportWasArray
@@ -1254,6 +1260,15 @@ export function submitModal() {
   }
   data.name = name;
 
+  if (
+    state.modalMode === 'edit'
+    && Object.prototype.hasOwnProperty.call(data, 'rank')
+    && typeof data.rank === 'string'
+    && data.rank.trim() !== ''
+  ) {
+    data.rank = Number(data.rank);
+  }
+
   const duplicate = findDuplicateLevel(
     { ...data, _id: state.modalLevelId ?? undefined },
     state.rawLevels.filter(l => l._id !== state.modalLevelId)
@@ -1272,12 +1287,12 @@ export function submitModal() {
     : -1;
   const rankChanged = editingLevel
     && Object.prototype.hasOwnProperty.call(data, 'rank')
-    && data.rank !== editingLevel.rank;
+    && currentRankedIdx !== -1
+    && data.rank !== currentRankedIdx + 1;
   if (
     rankChanged
     && currentRankedIdx !== -1
     && !isRankedVariant(editingLevel)
-    && data.rank !== null
     && (!Number.isInteger(data.rank) || data.rank < 1 || data.rank > state.rankedList.length)
   ) {
     showToast(`Rank must be a whole number between 1 and ${state.rankedList.length}.`, 'danger');
