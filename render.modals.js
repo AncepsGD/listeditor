@@ -4,6 +4,7 @@ import { showToast, deleteLevel, reevaluateRanked, resolveContradiction } from '
 import { addCustomValue, removeCustomValue, updateCustomValue, listImportTemplates, saveImportTemplate, loadImportTemplate, deleteImportTemplate } from './state.js';
 
 let _importPreviewData = { records: [], schema: [], type: 'main' };
+let _modalDuplicateCustomValues = null;
 const MODAL_INTERNAL_FIELDS = new Set(['_id', 'pending', 'lowConfidence', 'confidence', 'lastEdited', 'customValues']);
 const MODAL_VALUE_TYPES = ['text', 'number', 'boolean', 'object', 'array', 'null'];
 
@@ -35,6 +36,7 @@ export function openEditModal(levelId) {
   const level = state.levelMap.get(levelId);
   if (!level) return;
 
+  _modalDuplicateCustomValues = null;
   state.modalMode = 'edit';
   state.modalLevelId = levelId;
   state.modalOriginalKeys = Object.keys(level).filter(key => !isManagedField(key));
@@ -61,6 +63,7 @@ export function openEditModal(levelId) {
 }
 
 export function openAddModal() {
+  _modalDuplicateCustomValues = null;
   state.modalMode = 'add';
   state.modalLevelId = null;
   state.modalOriginalKeys = [];
@@ -83,6 +86,49 @@ export function openAddModal() {
     `input[name="modal-status"][value="${state.settings.defaultNewStatus}"]`
   );
   if (defaultStatusRadio) defaultStatusRadio.checked = true;
+
+  document.getElementById('level-modal').classList.add('active');
+  setTimeout(() => document.querySelector('#modal-fields [data-field-key="name"] .structured-value-editor input, #modal-fields [data-field-key="name"] .structured-value-editor textarea, #modal-fields [data-field-key="name"] .structured-value-editor select')?.focus(), 50);
+}
+
+export function openDuplicateModal(levelId) {
+  const level = state.levelMap.get(levelId);
+  if (!level) return;
+
+  _modalDuplicateCustomValues = JSON.parse(JSON.stringify(level.customValues ?? {}));
+  state.modalMode = 'add';
+  state.modalLevelId = null;
+  state.modalOriginalKeys = [];
+
+  const baseName = String(level.name || 'Untitled');
+  let name = `${baseName} (copy)`;
+  let copyNumber = 2;
+  while (findDuplicateLevel({ name }, state.rawLevels)) {
+    name = `${baseName} (copy ${copyNumber})`;
+    copyNumber++;
+  }
+
+  const values = Object.fromEntries(
+    Object.entries(level)
+      .filter(([key]) => !isManagedField(key) && key !== 'rank')
+      .map(([key, value]) => [key, value])
+  );
+  values.name = name;
+
+  document.getElementById('modal-title').textContent = `Duplicating: ${level.name || 'Untitled'}`;
+  renderModalFields(values);
+  const formHint = document.querySelector('.editor-form-hint');
+  if (formHint) {
+    formHint.textContent = state.lastImportWasArray
+      ? 'Edit every value, including nested object properties and array items. Values retain their JSON types.'
+      : 'Edit every value, including nested object properties and array items. Values retain their JSON types. Dragging a ranked level updates its rank.';
+  }
+  const newFieldName = document.getElementById('modal-new-field-name');
+  if (newFieldName) newFieldName.value = '';
+  const addStatusGroup = document.getElementById('modal-status-group');
+  if (addStatusGroup) addStatusGroup.style.display = 'block';
+  const rankedStatusRadio = document.querySelector('input[name="modal-status"][value="ranked"]');
+  if (rankedStatusRadio) rankedStatusRadio.checked = true;
 
   document.getElementById('level-modal').classList.add('active');
   setTimeout(() => document.querySelector('#modal-fields [data-field-key="name"] .structured-value-editor input, #modal-fields [data-field-key="name"] .structured-value-editor textarea, #modal-fields [data-field-key="name"] .structured-value-editor select')?.focus(), 50);
@@ -1234,6 +1280,7 @@ export function closeModal() {
   document.getElementById('level-modal').classList.remove('active');
   state.modalMode = null;
   state.modalLevelId = null;
+  _modalDuplicateCustomValues = null;
 }
 
 export function submitModal() {
@@ -1339,7 +1386,7 @@ export function submitModal() {
     const statusEl = document.querySelector('input[name="modal-status"]:checked');
     const status = statusEl ? statusEl.value : 'pending';
     const _id = makeLevelId(data, state.rawLevels.length);
-    const level = { ...data, _id, pending: true, customValues: {} };
+    const level = { ...data, _id, pending: true, customValues: _modalDuplicateCustomValues ?? {} };
     state.rawLevels.push(level);
     state.levelMap.set(_id, level);
     detectColumnsFromLevels();

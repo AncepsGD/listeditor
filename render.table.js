@@ -72,6 +72,7 @@ function renderRankCard(level, idx, displayRank, options = {}) {
           <h4 title="${escHtml(level.name || 'Untitled')}">${escHtml(level.name || 'Untitled')}</h4>
           <div class="rank-list-actions">
             <button class="btn btn-xs" type="button" data-action="edit" data-id="${escHtml(level._id)}">Edit</button>
+            <button class="btn btn-xs" type="button" data-action="duplicate" data-id="${escHtml(level._id)}">Duplicate</button>
             ${variant ? '' : `<button class="btn btn-xs" type="button" data-action="reeval" data-id="${escHtml(level._id)}">Re-rank</button>`}
             <button class="btn btn-xs btn-danger" type="button" data-action="delete" data-id="${escHtml(level._id)}">Delete</button>
           </div>

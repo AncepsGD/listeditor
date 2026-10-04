@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { saveSession } from './logic.js';
 import { moveLevel, deleteLevel, reevaluateRanked, getOrdinaryRankedEntries } from './logic.js';
-import { openEditModal } from './render.modals.js';
+import { openEditModal, openDuplicateModal } from './render.modals.js';
 
 export function setupColumnDragHandlers(orderedColumns) {
   let draggedColumn = null;
@@ -99,6 +99,7 @@ export function setupRankingsInteraction(list) {
       const level = state.levelMap.get(btn.dataset.id);
       if (!level) return;
       if (action === 'edit') { openEditModal(level._id); return; }
+      if (action === 'duplicate') { openDuplicateModal(level._id); return; }
       if (action === 'reeval') {
         if (confirm(`Move "${level.name}" back to pending for re-ranking?`)) {
           reevaluateRanked(level._id);
