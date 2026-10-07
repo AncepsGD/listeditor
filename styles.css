@@ -2332,6 +2332,16 @@ tbody#rankings-body:empty::before {
     line-height: 1.6;
 }
 
+.consistency-run-name-selected {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.consistency-run-name-excluded {
+    color: var(--muted);
+    text-decoration: line-through;
+}
+
 .consistency-gates {
     display: flex;
     flex-wrap: wrap;

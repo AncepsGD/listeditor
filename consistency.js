@@ -520,119 +520,241 @@ function initConsistencyEvaluator() {
           1
       };
     });
-    const sorted = withOrder.slice().sort((a, b) => b.end - a.end);
-    const M = sorted.length ? sorted[0].end : 0;
-    const peakOrigIndex = sorted.length ? sorted[0].origIndex : -1;
+    const required = baseline * Math.pow(1 + margin / 100, k) * combinedLevelFactor * precisionFactor;
 
-    const fillerFloor = M * (fillerThreshold / 100);
+    function evaluateRunSet(runSet, trimEdgeRuns) {
+      const sorted = runSet.slice().sort((a, b) => b.end - a.end);
+      const M = sorted.length ? sorted[0].end : 0;
+      const peakOrigIndex = sorted.length ? sorted[0].origIndex : -1;
+      const fillerFloor = M * (fillerThreshold / 100);
+      const breakdown = sorted.map((run, idx) => {
+        const rank = idx + 1;
+        const isPeak = rank === 1;
+        const order = isPeak ? 'peak' : (run.origIndex < peakOrigIndex ? 'pre' : 'post');
+        const reachedSeconds = levelDurationSeconds * run.end / 100;
+        const postPeakQualificationFactor = nerveEnabled && order === 'post' ?
+          Math.exp(-nerveRate * reachedSeconds * postPeakQualificationNerve) :
+          1;
+        const qualificationNerveFactor = run.nerveFactor * postPeakQualificationFactor;
+        const nerveAdjustedEnd = Math.min(100, run.end / qualificationNerveFactor * run.noclipFactor);
+        const fillerGap = Math.max(0, M - run.end);
+        return {
+          ...run,
+          rank,
+          nerveAdjustedEnd,
+          qualificationNerveFactor,
+          countsForScore: run.end > 0,
+          countsAsQualifying: nerveAdjustedEnd >= fillerFloor || isPeak,
+          isPeak,
+          order,
+          fillerGap,
+          fillerOk: fillerGap <= fillerMax,
+          isLowValueFiller: !isPeak && M > 0 && nerveAdjustedEnd < fillerFloor
+        };
+      });
 
-    const breakdown = sorted.map((run, idx) => {
-      const rank = idx + 1;
-      const isPeak = rank === 1;
-      const order = isPeak ? 'peak' : (run.origIndex < peakOrigIndex ? 'pre' : 'post');
+      const qualifyingCount = breakdown.filter(run => run.countsAsQualifying).length;
+      const qualifyingIndexes = breakdown
+        .filter(run => run.countsAsQualifying)
+        .map(run => run.origIndex);
+      const firstQualifyingIndex = Math.min(...qualifyingIndexes);
+      const lastQualifyingIndex = Math.max(...qualifyingIndexes);
+      const trimmedRunIndexes = new Set(trimEdgeRuns ? breakdown
+        .filter(run => qualifyingCount >= 2 && !run.countsAsQualifying &&
+          (run.origIndex < firstQualifyingIndex || run.origIndex > lastQualifyingIndex))
+        .map(run => run.origIndex) : []);
+      const scoredRuns = breakdown
+        .filter(run => !trimmedRunIndexes.has(run.origIndex))
+        .map((run, idx) => ({ ...run, scoringRank: idx + 1 }));
+      const scoredContributions = scoredRuns.map(run => {
+        const runFactor = run.nerveFactor * run.noclipFactor;
+        if (run.isPeak) {
+          const peakContribution = (coverageEnabled ? M * run.coverage : M) * runFactor;
+          return { ...run, w: peakContribution, contribution: peakContribution, isAutoFailFiller: false };
+        }
+        if (!run.countsForScore) {
+          return { ...run, w: 0, contribution: 0, isAutoFailFiller: false };
+        }
+        const orderFactor = run.order === 'pre' ? preWeight : postWeight;
+        const difficultyFactor = Math.pow(run.end / M, k);
+        const baseContribution = weight * difficultyFactor *
+          Math.pow(decay, Math.max(0, run.scoringRank - 2)) *
+          orderFactor * run.coverage * runFactor;
+        const runRatio = M > 0 ? run.end / M : 0;
+        const contribution = runRatio <= 0.59 ? 0 :
+          runRatio < 0.69 ? baseContribution * 0.3 : baseContribution;
+        const qualifyingRatio = M > 0 ? run.nerveAdjustedEnd / M : 0;
+        return {
+          ...run,
+          w: contribution,
+          contribution,
+          isAutoFailFiller: qualifyingRatio > 0.10 && qualifyingRatio <= 0.59
+        };
+      });
+      const contributionByIndex = new Map(scoredContributions.map(run => [run.origIndex, run]));
+      const contributions = breakdown.map(run => contributionByIndex.get(run.origIndex) || {
+        ...run,
+        w: 0,
+        contribution: 0,
+        trimmedAsEdge: true,
+        isAutoFailFiller: false
+      });
+      const peakContribution = contributions.find(run => run.isPeak)?.contribution || 0;
+      const rawScore = peakContribution +
+        contributions.filter(run => !run.isPeak).reduce((sum, run) => sum + run.contribution, 0);
+      const hasAutoFailFiller = contributions.some(run => run.isAutoFailFiller);
+      const fillerCount = scoredRuns.filter(run => run.isLowValueFiller).length;
+      const allowedFillerCount = Math.max(0, Math.ceil(scoredRuns.length * (fillerLimitPercent / 100)));
+      const excessFiller = Math.max(0, fillerCount - allowedFillerCount);
+      const fillerMultiplier = Math.pow(fillerDecay, excessFiller);
+      const postPeakNerveExposureSeconds = scoredRuns
+        .filter(run => run.order === 'post' && run.end > 0)
+        .reduce((sum, run) => sum + levelDurationSeconds * run.end / 100, 0);
+      const postPeakNerveMultiplier = nerveEnabled ?
+        Math.exp(-nerveRate * postPeakNerveExposureSeconds) :
+        1;
+      const score = rawScore * fillerMultiplier * postPeakNerveMultiplier;
+      const gateA = score >= required && required > 0;
+      const gateB = currentScore <= 0 || score > currentScore;
+      const consistencyGate = qualifyingCount >= 2;
+      const passed = consistencyGate && !hasAutoFailFiller && gateA && gateB;
+      return {
+        sorted,
+        M,
+        breakdown,
+        qualifyingCount,
+        trimmedRunIndexes,
+        scoredRuns,
+        contributions,
+        hasAutoFailFiller,
+        fillerCount,
+        allowedFillerCount,
+        excessFiller,
+        fillerMultiplier,
+        postPeakNerveExposureSeconds,
+        postPeakNerveMultiplier,
+        score,
+        gateA,
+        gateB,
+        consistencyGate,
+        passed
+      };
+    }
+
+    const legacyEvaluation = evaluateRunSet(withOrder, true);
+    let evaluation = legacyEvaluation;
+    let selectedIndexes = new Set(withOrder.map(run => run.origIndex));
+    let subsetSearchApplied = false;
+    let subsetSearchTruncated = false;
+    let evaluationsChecked = 0;
+    const maxSubsetEvaluations = 1100000;
+
+    if (withOrder.length >= 2) {
+      let passingEvaluation = null;
+      let passingIndexes = null;
+      for (let windowSize = withOrder.length; windowSize >= 2 && !passingEvaluation; windowSize -= 1) {
+        let bestWindowEvaluation = null;
+        let bestWindowIndexes = null;
+        for (let start = 0; start <= withOrder.length - windowSize; start += 1) {
+          if (evaluationsChecked >= maxSubsetEvaluations) break;
+          const candidateRuns = withOrder.slice(start, start + windowSize);
+          evaluationsChecked += 1;
+          const candidate = evaluateRunSet(candidateRuns, false);
+          const isBetterPassingWindow = candidate.passed && (
+            !bestWindowEvaluation ||
+            candidate.qualifyingCount > bestWindowEvaluation.qualifyingCount ||
+            (candidate.qualifyingCount === bestWindowEvaluation.qualifyingCount &&
+              candidate.score > bestWindowEvaluation.score) ||
+            (candidate.qualifyingCount === bestWindowEvaluation.qualifyingCount &&
+              candidate.score === bestWindowEvaluation.score &&
+              candidate.M > bestWindowEvaluation.M)
+          );
+          if (isBetterPassingWindow) {
+            bestWindowEvaluation = candidate;
+            bestWindowIndexes = new Set(candidateRuns.map(run => run.origIndex));
+          }
+        }
+        if (bestWindowEvaluation) {
+          passingEvaluation = bestWindowEvaluation;
+          passingIndexes = bestWindowIndexes;
+        }
+        if (evaluationsChecked >= maxSubsetEvaluations) break;
+      }
+
+      if (passingEvaluation) {
+        evaluation = passingEvaluation;
+        selectedIndexes = passingIndexes;
+        subsetSearchApplied = selectedIndexes.size < withOrder.length;
+        subsetSearchTruncated = evaluationsChecked >= maxSubsetEvaluations;
+      } else if (evaluationsChecked >= maxSubsetEvaluations) {
+        subsetSearchTruncated = true;
+      } else {
+        evaluation = legacyEvaluation;
+        selectedIndexes = new Set(legacyEvaluation.scoredRuns.map(run => run.origIndex));
+      }
+    } else {
+      selectedIndexes = new Set(legacyEvaluation.scoredRuns.map(run => run.origIndex));
+    }
+
+    const {
+      M,
+      qualifyingCount: n,
+      trimmedRunIndexes: edgeTrimmedIndexes,
+      scoredRuns,
+      hasAutoFailFiller,
+      fillerCount,
+      allowedFillerCount,
+      excessFiller,
+      fillerMultiplier,
+      postPeakNerveExposureSeconds,
+      postPeakNerveMultiplier,
+      score,
+      gateA,
+      gateB,
+      consistencyGate,
+      passed
+    } = evaluation;
+    selectedIndexes = new Set(scoredRuns.map(run => run.origIndex));
+    const trimmedRunCount = withOrder.length - scoredRuns.length;
+    const subsetTrimmedRunCount = withOrder.length - selectedIndexes.size;
+    const chosenContributions = new Map(evaluation.contributions.map(run => [run.origIndex, run]));
+    const attemptsInOrder = withOrder.slice().sort((a, b) => a.origIndex - b.origIndex);
+    const contributions = attemptsInOrder.map((run, idx) => {
+      const chosen = chosenContributions.get(run.origIndex);
+      if (chosen) {
+        return {
+          ...chosen,
+          rank: idx + 1,
+          trimmedBySubset: !selectedIndexes.has(run.origIndex)
+        };
+      }
+      const effectiveProgress = evaluation.breakdown.find(item => item.isPeak);
+      const MForDisplay = evaluation.M || 0;
+      const peakIndex = effectiveProgress ? effectiveProgress.origIndex : -1;
+      const order = run.origIndex === peakIndex ? 'peak' : run.origIndex < peakIndex ? 'pre' : 'post';
       const reachedSeconds = levelDurationSeconds * run.end / 100;
-      const postPeakQualificationFactor = nerveEnabled && order === 'post' ?
+      const postPeakFactor = nerveEnabled && order === 'post' ?
         Math.exp(-nerveRate * reachedSeconds * postPeakQualificationNerve) :
         1;
-      const qualificationNerveFactor = run.nerveFactor * postPeakQualificationFactor;
-      const nerveAdjustedEnd = Math.min(100, run.end / qualificationNerveFactor * run.noclipFactor);
-      const fillerGap = Math.max(0, M - run.end);
-      const fillerOk = fillerGap <= fillerMax;
-      const countsForScore = run.end > 0;
-      const countsAsQualifying = nerveAdjustedEnd >= fillerFloor || isPeak;
-      const isLowValueFiller = !isPeak && M > 0 && nerveAdjustedEnd < fillerFloor;
+      const nerveAdjustedEnd = Math.min(100, run.end / (run.nerveFactor * postPeakFactor) * run.noclipFactor);
       return {
-        rank,
-        start: run.start,
-        end: run.end,
-        noclip: run.noclip,
-        deathPercents: run.deathPercents,
-        accuracy: run.accuracy,
-        noclipTool: run.noclipTool,
-        noclipSeverity: run.noclipSeverity,
-        noclipFactor: run.noclipFactor,
+        ...run,
+        rank: idx + 1,
         nerveAdjustedEnd,
-        nerveFactor: run.nerveFactor,
-        qualificationNerveFactor,
-        coverage: run.coverage,
-        origIndex: run.origIndex,
-        countsForScore,
-        countsAsQualifying,
-        isPeak,
+        countsForScore: run.end > 0,
+        countsAsQualifying: MForDisplay > 0 && nerveAdjustedEnd >= MForDisplay * fillerThreshold / 100,
+        isPeak: false,
         order,
-        fillerGap,
-        fillerOk,
-        isLowValueFiller
+        fillerGap: Math.max(0, MForDisplay - run.end),
+        fillerOk: false,
+        isLowValueFiller: false,
+        w: 0,
+        contribution: 0,
+        trimmedAsEdge: edgeTrimmedIndexes.has(run.origIndex),
+        trimmedBySubset: !selectedIndexes.has(run.origIndex),
+        isAutoFailFiller: false
       };
     });
-
-    const n = breakdown.filter(run => run.countsAsQualifying).length;
-    const qualifyingIndexes = breakdown
-      .filter(run => run.countsAsQualifying)
-      .map(run => run.origIndex);
-    const firstQualifyingIndex = Math.min(...qualifyingIndexes);
-    const lastQualifyingIndex = Math.max(...qualifyingIndexes);
-    const trimmedRunIndexes = new Set(breakdown
-      .filter(run => n >= 2 && !run.countsAsQualifying &&
-        (run.origIndex < firstQualifyingIndex || run.origIndex > lastQualifyingIndex))
-      .map(run => run.origIndex));
-    const scoredRuns = breakdown
-      .filter(run => !trimmedRunIndexes.has(run.origIndex))
-      .map((run, idx) => ({ ...run, scoringRank: idx + 1 }));
-
-    const scoredContributions = scoredRuns.map(run => {
-      const nerveFactor = run.nerveFactor;
-      const runFactor = nerveFactor * run.noclipFactor;
-      if (run.isPeak) {
-        const peakContribution = (coverageEnabled ? M * run.coverage : M) * runFactor;
-        return { ...run, w: peakContribution, contribution: peakContribution, nerveFactor, noclipFactor: run.noclipFactor };
-      }
-      if (!run.countsForScore) return { ...run, w: 0, contribution: 0, nerveFactor, noclipFactor: run.noclipFactor };
-      const orderFactor = run.order === 'pre' ? preWeight : postWeight;
-      const difficultyFactor = Math.pow(run.end / M, k);
-      const baseContribution = weight * difficultyFactor * Math.pow(decay, Math.max(0, run.scoringRank - 2)) * orderFactor * run.coverage * runFactor;
-      const runRatio = M > 0 ? run.end / M : 0;
-      let contribution;
-      if (runRatio <= 0.10) {
-        contribution = 0;
-      } else if (runRatio <= 0.59) {
-        contribution = 0;
-      } else if (runRatio < 0.69) {
-        contribution = baseContribution * 0.3;
-      } else {
-        contribution = baseContribution;
-      }
-      const qualifyingRatio = M > 0 ? run.nerveAdjustedEnd / M : 0;
-      return { ...run, w: contribution, contribution, nerveFactor, noclipFactor: run.noclipFactor, isAutoFailFiller: qualifyingRatio > 0.10 && qualifyingRatio <= 0.59 };
-    });
-    const contributions = breakdown.map(run =>
-      scoredContributions.find(scored => scored.origIndex === run.origIndex) ||
-      { ...run, w: 0, contribution: 0, trimmedAsEdge: true }
-    );
-
-    const peakContribution = contributions.find(run => run.isPeak)?.contribution || 0;
-    const rawScore = peakContribution + contributions.filter(run => !run.isPeak).reduce((sum, run) => sum + run.contribution, 0);
-    const hasAutoFailFiller = contributions.some(run => run.isAutoFailFiller);
-
-    const trimmedRunCount = trimmedRunIndexes.size;
-    const fillerCount = scoredRuns.filter(run => run.isLowValueFiller).length;
-    const allowedFillerCount = Math.max(0, Math.ceil(scoredRuns.length * (fillerLimitPercent / 100)));
-    const excessFiller = Math.max(0, fillerCount - allowedFillerCount);
-    const fillerMultiplier = Math.pow(fillerDecay, excessFiller);
-    const postPeakNerveExposureSeconds = scoredRuns
-      .filter(run => run.order === 'post' && run.end > 0)
-      .reduce((sum, run) => sum + levelDurationSeconds * run.end / 100, 0);
-    const postPeakNerveMultiplier = nerveEnabled ?
-      Math.exp(-nerveRate * postPeakNerveExposureSeconds) :
-      1;
-    const score = rawScore * fillerMultiplier * postPeakNerveMultiplier;
-
-    const marginFactor = Math.pow(1 + margin / 100, k);
-    const required = baseline * marginFactor * combinedLevelFactor * precisionFactor;
-    const gateA = score >= required && required > 0;
-    const gateB = currentScore <= 0 || score > currentScore;
-    const consistencyGate = n >= 2;
-    const passed = consistencyGate && !hasAutoFailFiller && gateA && gateB;
 
     const resultBox = getInput('resultBox');
     const verdictText = getInput('verdictText');
@@ -648,14 +770,21 @@ function initConsistencyEvaluator() {
         ` ${fillerCount} filler runs (${excessFiller.toFixed(1)} over the ${allowedFillerCount.toFixed(1)} allowed) cut the score by ${((1 - fillerMultiplier) * 100).toFixed(1)}%.` :
         '';
       const trimmedRunNote = trimmedRunCount > 0 ?
-        ` ${trimmedRunCount} non-qualifying edge ${trimmedRunCount === 1 ? 'run was' : 'runs were'} trimmed; scoring uses the runs between the first and last qualifying attempts.` :
+        subsetSearchApplied ?
+          ` Passing set found: ${subsetTrimmedRunCount} ${subsetTrimmedRunCount === 1 ? 'attempt' : 'attempts'} trimmed. Retained run names are highlighted below; internal attempts stay in the set.` :
+          ` ${trimmedRunCount} non-qualifying edge ${trimmedRunCount === 1 ? 'run was' : 'runs were'} trimmed; retained run names are highlighted below, including internal fillers.` :
         '';
       const postPeakNerveNote = nerveEnabled && postPeakNerveExposureSeconds > 0 ?
         ` Post-peak nerves apply an additional ×${postPeakNerveMultiplier.toFixed(3)} score factor.` :
         '';
+      const searchNote = subsetSearchTruncated ?
+        (subsetSearchApplied ?
+          ` Subset search reached its ${maxSubsetEvaluations.toLocaleString()}-candidate limit; this is the best passing set found so far.` :
+          ` Subset search reached its ${maxSubsetEvaluations.toLocaleString()}-candidate limit without finding a passing subset; showing the full-set result, which may not be optimal.`) :
+        '';
       verdictSub.textContent = (n < 2 ?
         `Only ${n} run qualifies — treated as a single personal best, not a consistency claim.` :
-        `${n} runs qualify. Score ${score.toFixed(1)}%.`) + trimmedRunNote + fillerNote + postPeakNerveNote;
+        `${n} runs qualify. Score ${score.toFixed(1)}%.`) + trimmedRunNote + searchNote + fillerNote + postPeakNerveNote;
     }
 
     const gateAStatus = getInput('gateAStatus');
@@ -687,19 +816,18 @@ function initConsistencyEvaluator() {
     }
     const consistencyDetail = getInput('consistencyDetail');
     if (consistencyDetail) {
-      consistencyDetail.textContent = `${n} qualifying ${n === 1 ? 'run' : 'runs'}; ${trimmedRunCount} edge ${trimmedRunCount === 1 ? 'run' : 'runs'} trimmed`;
+      consistencyDetail.textContent = `${n} qualifying ${n === 1 ? 'run' : 'runs'}; ${trimmedRunCount} ${subsetSearchApplied ? 'attempts trimmed from passing subset' : 'edge runs trimmed'}`;
     }
 
     const fillerStatus = getInput('fillerStatus');
     if (fillerStatus) {
-      fillerStatus.textContent = excessFiller > 0 ? 'PENALTY' : 'OK';
       fillerStatus.textContent = excessFiller > 0 ? 'PENALTY' : trimmedRunCount > 0 ? 'TRIMMED' : 'OK';
       fillerStatus.className = 'consistency-gate-status ' + (excessFiller > 0 ? 'fail' : trimmedRunCount > 0 ? 'neutral' : 'pass');
     }
     const fillerDetail = getInput('fillerDetail');
     if (fillerDetail) {
       const trimmedNote = trimmedRunCount > 0 ?
-        `${trimmedRunCount} edge ${trimmedRunCount === 1 ? 'run' : 'runs'} trimmed; ` :
+        `${trimmedRunCount} ${subsetSearchApplied ? 'attempts excluded' : 'edge runs trimmed'}; ` :
         '';
       fillerDetail.textContent = `${trimmedNote}${fillerCount}/${scoredRuns.length} scored runs under ${fillerThreshold.toFixed(1)}% of peak (allowed: ${allowedFillerCount.toFixed(1)}), ×${fillerMultiplier.toFixed(3)} applied`;
     }
@@ -709,7 +837,6 @@ function initConsistencyEvaluator() {
       body.innerHTML = '';
       contributions.forEach(row => {
         const tr = document.createElement('tr');
-        if (row.trimmedAsEdge) tr.className = 'discarded';
         const orderLabel = row.isPeak ? 'peak' : row.order;
         let runLabel = row.start > 0 ?
           `${row.start.toFixed(0)}–${row.end.toFixed(0)}` :
@@ -726,9 +853,6 @@ function initConsistencyEvaluator() {
         if (row.isLowValueFiller) {
           runLabel += ' (low-value filler)';
         }
-        if (row.trimmedAsEdge) {
-          runLabel += ' (trimmed: outside qualifying span)';
-        }
         if (row.noclip) {
           const deathCountLabel = formatDeathCount(row.deathPercents);
           const deathLocations = row.deathPercents.trim() ?
@@ -741,10 +865,12 @@ function initConsistencyEvaluator() {
           const accuracy = row.accuracy !== '' ? `; ${Number(row.accuracy).toFixed(2)}% accuracy` : '';
           runLabel += `<br><span class="consistency-run-noclip-summary">Noclip (${escapeHtml(row.noclipTool)}): ${deathCountLabel}${deathLocations}${accuracy}</span>`;
         }
+        const runNameClass = row.trimmedBySubset ? ' consistency-run-name-excluded' :
+          trimmedRunCount > 0 ? ' consistency-run-name-selected' : '';
         tr.innerHTML = `
-          <td>#${row.rank}</td>
+          <td>#${row.origIndex + 1}</td>
           <td>${orderLabel}</td>
-          <td>${runLabel}</td>
+          <td><span class="consistency-run-name${runNameClass}">${runLabel}</span></td>
           <td class="num">${(row.coverage * 100).toFixed(0)}%</td>
           <td class="num">${row.nerveFactor.toFixed(3)}×</td>
           <td class="num">${row.noclipFactor.toFixed(3)}×</td>

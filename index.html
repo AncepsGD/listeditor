@@ -421,7 +421,7 @@
           <table class="consistency-table">
             <thead>
               <tr>
-                <th>Rank</th>
+                <th>Attempt</th>
                 <th>Order</th>
                 <th>Run</th>
                 <th class="num">Coverage</th>
@@ -442,11 +442,11 @@
         </div>
 
         <div class="consistency-note-box">
-          <div><code>1.</code> Peak = the submitted run with the highest End %. If tied, the first such attempt is the peak run (M = peak End %).</div>
+          <div><code>1.</code> End % is capped at 100. The calculator searches contiguous attempt windows from longest to shortest and uses the largest passing window. If multiple windows of that size pass, it prefers more qualifying runs, then the higher score. Its highest End % is the peak (M); ties use the first retained attempt. Internal attempts remain in the selected window, while attempts outside it are excluded.</div>
           <div><code>2.</code> Run nerve factor = e^(−Nerve Rate × level duration in seconds × End %/100), or 1 when time-based nerves are disabled.</div>
           <div><code>3.</code> For qualification, a post-peak run also gets an extra nerve factor = e^(−Nerve Rate × reached seconds × Extra Post-Peak Qualification Nerve). Effective progress = min(100%, End % ÷ (run nerve factor × extra post-peak factor) × Noclip Factor). The extra factor is 1 for pre-peak and peak runs.</div>
           <div><code>4.</code> A run qualifies when effective progress is at least Filler Threshold % of M. The peak run always qualifies.</div>
-          <div><code>5.</code> If at least 2 runs qualify, non-qualifying attempts before the first or after the last qualifying attempt are trimmed from scoring and grayed out. Non-qualifying attempts between them remain in the calculation.</div>
+          <div><code>5.</code> Internal attempts in the selected window stay in the calculation, including low-progress fillers. Attempts outside the window do not affect the peak, score, filler, auto-fail, or post-peak nerves. Searches are bounded for very large run sets and the result says when the limit is reached.</div>
           <div><code>6.</code> Acceptance requires at least 2 qualifying runs, no auto-fail filler, and passing both Gate A and Gate B.</div>
           <div><code>7.</code> Coverage = clamp((End − Start) / End, 0, 1), or 1 if partial-coverage discounting is disabled. Coverage affects run contributions, including the peak.</div>
           <div><code>8.</code> For a noclip run, severity = sum over entered deaths of [0.1 + 0.9 × (death %/100)²] + max(0, 99.7 − Accuracy %) × 1000. A death range uses its midpoint; each valid comma-separated position or range counts as one death. Blank accuracy adds no accuracy severity. Eclipse scales the accuracy-severity part by 0.165/0.39; Mega Hack uses 1.</div>
@@ -771,7 +771,7 @@
   <script type="module" src="render.table.js?v=20261002"></script>
   <script type="module" src="render.main.js?v=20261002"></script>
   <script type="module" src="init.js?v=20261002"></script>
-  <script src="consistency.js?v=20261007-19"></script>
+  <script src="consistency.js?v=20261007-30"></script>
 </body>
 
 </html>
