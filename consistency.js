@@ -72,7 +72,7 @@ function initConsistencyEvaluator() {
             let savedValue = saved.controls[id];
             if (id === 'noclipPenaltyRate') {
               const rate = Number(savedValue);
-              savedValue = savedValue === '0.25' ? input.value :
+              savedValue = savedValue === '0.25' || savedValue === '0.1' ? input.value :
                 Number.isFinite(rate) ? String(Math.max(0, Math.min(0.5, rate))) : input.value;
             }
             input.value = savedValue;
@@ -856,7 +856,7 @@ function initConsistencyEvaluator() {
   getInput('nerveEnabled')?.addEventListener('change', calculate);
   getInput('noclipPenaltyRate')?.addEventListener('change', e => {
     const rate = Number(e.target.value);
-    e.target.value = Number.isFinite(rate) ? String(Math.max(0, Math.min(0.5, rate))) : '0.1';
+    e.target.value = Number.isFinite(rate) ? String(Math.max(0, Math.min(0.5, rate))) : '0.5';
     calculate();
   });
   document.querySelector('.consistency-advanced')?.addEventListener('toggle', saveState);

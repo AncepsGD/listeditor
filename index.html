@@ -313,12 +313,12 @@
             <div class="field-group">
               <label class="field-label" for="postPeakQualificationNerve">Extra Post-Peak Qualification Nerve</label>
               <input type="number" id="postPeakQualificationNerve" class="field-input" value="0.7" step="0.05" min="0" max="2">
-              <div class="hint">Additional nerve exposure used to judge whether a post-peak run qualifies. Higher values let a smaller post-peak run count.</div>
+              <div class="hint">Multiplier in the extra post-peak qualification nerve exponent; this setting is limited to 0–2. Higher values make smaller post-peak runs count as more effective progress. 320 is not an appropriate value here; it would be clamped to 2.</div>
             </div>
             <div class="field-group">
               <label class="field-label" for="noclipPenaltyRate">Noclip Severity Rate</label>
-              <input type="number" id="noclipPenaltyRate" class="field-input" value="0.1" step="0.05" min="0" max="0.5">
-              <div class="hint">Controls the per-run exponential noclip penalty (capped at 0.5 to prevent a run's credit collapsing to zero). The default is 0.1; set to 0 to disable it.</div>
+              <input type="number" id="noclipPenaltyRate" class="field-input" value="0.5" step="0.05" min="0" max="0.5">
+              <div class="hint">Controls the per-run exponential noclip penalty (capped at 0.5 to prevent a run's credit collapsing to zero). The default is 0.5; set to 0 to disable it.</div>
             </div>
             <div class="field-group">
               <label class="field-label" for="referencePrecision">Reference Precision (σ/s)</label>
@@ -771,7 +771,7 @@
   <script type="module" src="render.table.js?v=20261002"></script>
   <script type="module" src="render.main.js?v=20261002"></script>
   <script type="module" src="init.js?v=20261002"></script>
-  <script src="consistency.js?v=20261007-18"></script>
+  <script src="consistency.js?v=20261007-19"></script>
 </body>
 
 </html>
