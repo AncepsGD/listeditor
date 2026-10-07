@@ -521,6 +521,7 @@ function initConsistencyEvaluator() {
       };
     });
     const required = baseline * Math.pow(1 + margin / 100, k) * combinedLevelFactor * precisionFactor;
+    const submittedPeak = withOrder.reduce((peak, run) => Math.max(peak, run.end), 0);
 
     function evaluateRunSet(runSet, trimEdgeRuns) {
       const sorted = runSet.slice().sort((a, b) => b.end - a.end);
@@ -553,7 +554,60 @@ function initConsistencyEvaluator() {
         };
       });
 
-      const qualifyingCount = breakdown.filter(run => run.countsAsQualifying).length;
+      const coveragePairs = [];
+      const chronologicalRuns = breakdown.slice().sort((a, b) => a.origIndex - b.origIndex);
+      for (let i = 0; i < chronologicalRuns.length - 1; i += 1) {
+        const first = chronologicalRuns[i];
+        const second = chronologicalRuns[i + 1];
+        if (second.origIndex !== first.origIndex + 1) {
+          continue;
+        }
+
+        const intervals = [
+          [Math.max(0, Math.min(100, first.start)), Math.max(0, Math.min(100, first.end))],
+          [Math.max(0, Math.min(100, second.start)), Math.max(0, Math.min(100, second.end))]
+        ]
+          .filter(([start, end]) => end > start)
+          .sort((left, right) => left[0] - right[0]);
+        let uniqueCoverage = 0;
+        let coveredUntil = -1;
+        intervals.forEach(([start, end]) => {
+          const uncoveredStart = Math.max(start, coveredUntil);
+          if (end > uncoveredStart) uniqueCoverage += end - uncoveredStart;
+          coveredUntil = Math.max(coveredUntil, end);
+        });
+        const pairNoclipFactor = Math.min(first.noclipFactor, second.noclipFactor);
+        const rawUniqueCoverage = uniqueCoverage;
+        const individualCoverage = Math.max(
+          Math.max(0, first.end - first.start),
+          Math.max(0, second.end - second.start)
+        ) * pairNoclipFactor;
+        uniqueCoverage *= pairNoclipFactor;
+        const complementaryCoverageThreshold = submittedPeak * 0.95;
+        if (uniqueCoverage < complementaryCoverageThreshold ||
+          uniqueCoverage <= individualCoverage) continue;
+
+        const pairId = `${first.origIndex}-${second.origIndex}`;
+        first.coveragePairId = pairId;
+        second.coveragePairId = pairId;
+        first.coveragePairCoverage = rawUniqueCoverage;
+        second.coveragePairCoverage = rawUniqueCoverage;
+        first.coveragePairNoclipFactor = pairNoclipFactor;
+        second.coveragePairNoclipFactor = pairNoclipFactor;
+        first.countsAsQualifying = true;
+        second.countsAsQualifying = true;
+        first.isLowValueFiller = false;
+        second.isLowValueFiller = false;
+        coveragePairs.push(pairId);
+        i += 1;
+      }
+
+      const pairedRunIndexes = new Set(
+        breakdown.filter(run => run.coveragePairId).map(run => run.origIndex)
+      );
+      const qualifyingCount = breakdown.filter(run =>
+        run.countsAsQualifying && !pairedRunIndexes.has(run.origIndex)
+      ).length + coveragePairs.length;
       const qualifyingIndexes = breakdown
         .filter(run => run.countsAsQualifying)
         .map(run => run.origIndex);
@@ -569,8 +623,21 @@ function initConsistencyEvaluator() {
       const scoredContributions = scoredRuns.map(run => {
         const runFactor = run.nerveFactor * run.noclipFactor;
         if (run.isPeak) {
-          const peakContribution = (coverageEnabled ? M * run.coverage : M) * runFactor;
-          return { ...run, w: peakContribution, contribution: peakContribution, isAutoFailFiller: false };
+          const pairedCoverage = run.coveragePairId && run.noclipFactor > 0 ?
+            run.coveragePairCoverage / 100 *
+              run.coveragePairNoclipFactor / run.noclipFactor :
+            run.coverage;
+          const scoreCoverage = Math.max(run.coverage, pairedCoverage);
+          const peakContribution = (coverageEnabled ? M * scoreCoverage : M) * runFactor;
+          return {
+            ...run,
+            w: peakContribution,
+            contribution: peakContribution,
+            pairedScoreCoverage: run.coveragePairId && scoreCoverage > run.coverage ?
+              scoreCoverage :
+              null,
+            isAutoFailFiller: false
+          };
         }
         if (!run.countsForScore) {
           return { ...run, w: 0, contribution: 0, isAutoFailFiller: false };
@@ -588,7 +655,8 @@ function initConsistencyEvaluator() {
           ...run,
           w: contribution,
           contribution,
-          isAutoFailFiller: qualifyingRatio > 0.10 && qualifyingRatio <= 0.59
+          isAutoFailFiller: !run.coveragePairId &&
+            qualifyingRatio > 0.10 && qualifyingRatio <= 0.59
         };
       });
       const contributionByIndex = new Map(scoredContributions.map(run => [run.origIndex, run]));
@@ -623,6 +691,7 @@ function initConsistencyEvaluator() {
         M,
         breakdown,
         qualifyingCount,
+        coveragePairCount: coveragePairs.length,
         trimmedRunIndexes,
         scoredRuns,
         contributions,
@@ -699,6 +768,7 @@ function initConsistencyEvaluator() {
     const {
       M,
       qualifyingCount: n,
+      coveragePairCount,
       trimmedRunIndexes: edgeTrimmedIndexes,
       scoredRuns,
       hasAutoFailFiller,
@@ -777,14 +847,18 @@ function initConsistencyEvaluator() {
       const postPeakNerveNote = nerveEnabled && postPeakNerveExposureSeconds > 0 ?
         ` Post-peak nerves apply an additional ×${postPeakNerveMultiplier.toFixed(3)} score factor.` :
         '';
+      const coveragePairNote = coveragePairCount > 0 ?
+        ` ${coveragePairCount} adjacent complementary ${coveragePairCount === 1 ? 'run pair counts' : 'run pairs count'} as ${coveragePairCount === 1 ? 'one' : 'one each'} combined qualification unit based on unique level coverage.` :
+        '';
       const searchNote = subsetSearchTruncated ?
         (subsetSearchApplied ?
           ` Subset search reached its ${maxSubsetEvaluations.toLocaleString()}-candidate limit; this is the best passing set found so far.` :
           ` Subset search reached its ${maxSubsetEvaluations.toLocaleString()}-candidate limit without finding a passing subset; showing the full-set result, which may not be optimal.`) :
         '';
-      verdictSub.textContent = (n < 2 ?
-        `Only ${n} run qualifies — treated as a single personal best, not a consistency claim.` :
-        `${n} runs qualify. Score ${score.toFixed(1)}%.`) + trimmedRunNote + searchNote + fillerNote + postPeakNerveNote;
+      const qualificationSummary = n < 2 ?
+        `Only ${n} ${coveragePairCount ? 'qualification unit' : 'run'} qualifies — treated as a single personal best, not a consistency claim.` :
+        `${n} ${coveragePairCount ? 'qualification units' : 'runs qualify'}. Score ${score.toFixed(1)}%.`;
+      verdictSub.textContent = qualificationSummary + trimmedRunNote + searchNote + fillerNote + coveragePairNote + postPeakNerveNote;
     }
 
     const gateAStatus = getInput('gateAStatus');
@@ -816,7 +890,8 @@ function initConsistencyEvaluator() {
     }
     const consistencyDetail = getInput('consistencyDetail');
     if (consistencyDetail) {
-      consistencyDetail.textContent = `${n} qualifying ${n === 1 ? 'run' : 'runs'}; ${trimmedRunCount} ${subsetSearchApplied ? 'attempts trimmed from passing subset' : 'edge runs trimmed'}`;
+      consistencyDetail.textContent =
+        `${n} qualifying ${coveragePairCount ? `unit${n === 1 ? '' : 's'}` : n === 1 ? 'run' : 'runs'}; ${trimmedRunCount} ${subsetSearchApplied ? `attempt${trimmedRunCount === 1 ? '' : 's'} trimmed from passing set` : `edge run${trimmedRunCount === 1 ? '' : 's'} trimmed`}`;
     }
 
     const fillerStatus = getInput('fillerStatus');
@@ -867,11 +942,12 @@ function initConsistencyEvaluator() {
         }
         const runNameClass = row.trimmedBySubset ? ' consistency-run-name-excluded' :
           trimmedRunCount > 0 ? ' consistency-run-name-selected' : '';
+        const displayedCoverage = row.pairedScoreCoverage || row.coverage;
         tr.innerHTML = `
           <td>#${row.origIndex + 1}</td>
           <td>${orderLabel}</td>
           <td><span class="consistency-run-name${runNameClass}">${runLabel}</span></td>
-          <td class="num">${(row.coverage * 100).toFixed(0)}%</td>
+          <td class="num">${(displayedCoverage * 100).toFixed(0)}%</td>
           <td class="num">${row.nerveFactor.toFixed(3)}×</td>
           <td class="num">${row.noclipFactor.toFixed(3)}×</td>
           <td class="num">${row.countsForScore ? row.w.toFixed(2) : '0.00'}</td>
