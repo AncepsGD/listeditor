@@ -18,7 +18,7 @@ function initConsistencyEvaluator() {
       { start: 0, end: 75, noclip: false, deathPercents: '', accuracy: '', noclipTool: 'Mega Hack' },
       { start: 0, end: 100, noclip: false, deathPercents: '', accuracy: '', noclipTool: 'Mega Hack' }
     ],
-    listSegments: [{ coverage: 75, difficulty: 75, precision: null }]
+    listSegments: [{ coverage: 75, difficulty: 75, precision: null, start: null, end: null }]
   };
 
   function getInput(id) {
@@ -53,12 +53,18 @@ function initConsistencyEvaluator() {
             const coverage = Number(segment.coverage);
             const difficulty = Number(segment.difficulty);
             const precision = Number(segment.precision);
+            const start = Number(segment.start);
+            const end = Number(segment.end);
             return {
               coverage: Number.isFinite(coverage) ? coverage : 75,
               difficulty: segment.difficulty === '' || segment.difficulty == null ? null :
                 (Number.isFinite(difficulty) ? difficulty : null),
               precision: segment.precision === '' || segment.precision == null ? null :
-                (Number.isFinite(precision) ? precision : null)
+                (Number.isFinite(precision) ? precision : null),
+              start: segment.start === '' || segment.start == null ? null :
+                (Number.isFinite(start) ? Math.max(0, Math.min(100, start)) : null),
+              end: segment.end === '' || segment.end == null ? null :
+                (Number.isFinite(end) ? Math.max(0, Math.min(100, end)) : null)
             };
           });
       }
@@ -191,12 +197,18 @@ function initConsistencyEvaluator() {
           const coverage = Number(segment.coverage);
           const difficulty = Number(segment.difficulty);
           const precision = Number(segment.precision);
+          const start = Number(segment.start);
+          const end = Number(segment.end);
           return {
             coverage: Number.isFinite(coverage) ? Math.max(0, Math.min(100, coverage)) : 75,
             difficulty: segment.difficulty === '' || segment.difficulty == null ? null :
               (Number.isFinite(difficulty) ? Math.max(0, difficulty) : null),
             precision: segment.precision === '' || segment.precision == null ? null :
-              (Number.isFinite(precision) ? Math.max(0.001, precision) : null)
+              (Number.isFinite(precision) ? Math.max(0.001, precision) : null),
+            start: segment.start === '' || segment.start == null ? null :
+              (Number.isFinite(start) ? Math.max(0, Math.min(100, start)) : null),
+            end: segment.end === '' || segment.end == null ? null :
+              (Number.isFinite(end) ? Math.max(0, Math.min(100, end)) : null)
           };
         });
     }
@@ -404,7 +416,15 @@ function initConsistencyEvaluator() {
       row.className = 'consistency-segment-row';
       row.innerHTML = `
         <label class="consistency-segment-field">
-          <span class="consistency-segment-label">Level %</span>
+          <span class="consistency-segment-label">Start %</span>
+          <input type="number" value="${segment.start ?? ''}" min="0" max="100" step="1" placeholder="Optional" aria-label="Segment ${idx + 1} start percentage" data-idx="${idx}" class="consistency-input consistency-segment-start">
+        </label>
+        <label class="consistency-segment-field">
+          <span class="consistency-segment-label">End %</span>
+          <input type="number" value="${segment.end ?? ''}" min="0" max="100" step="1" placeholder="Optional" aria-label="Segment ${idx + 1} end percentage" data-idx="${idx}" class="consistency-input consistency-segment-end">
+        </label>
+        <label class="consistency-segment-field">
+          <span class="consistency-segment-label">Modifier Weight %</span>
           <input type="number" value="${segment.coverage}" min="0" max="100" step="1" data-idx="${idx}" class="consistency-input consistency-segment-cov">
         </label>
         <label class="consistency-segment-field">
@@ -416,8 +436,21 @@ function initConsistencyEvaluator() {
           <input type="number" value="${segment.precision ?? ''}" min="0.001" step="any" placeholder="Use level" data-idx="${idx}" class="consistency-input consistency-segment-precision">
         </label>
         <button class="consistency-remove-btn" data-idx="${idx}" type="button">×</button>
+        <span class="consistency-segment-range-error hidden" data-idx="${idx}">Enter both positions and make End greater than Start.</span>
       `;
       container.appendChild(row);
+    });
+
+    container.querySelectorAll('.consistency-segment-start, .consistency-segment-end').forEach(el => {
+      el.addEventListener('input', e => {
+        const i = parseInt(e.target.dataset.idx, 10);
+        const key = e.target.classList.contains('consistency-segment-start') ? 'start' : 'end';
+        const value = parseFloat(e.target.value);
+        state.listSegments[i][key] = e.target.value.trim() === '' || !Number.isFinite(value) ?
+          null :
+          Math.max(0, Math.min(100, value));
+        calculate();
+      });
     });
 
     container.querySelectorAll('.consistency-segment-cov').forEach(el => {
@@ -461,7 +494,51 @@ function initConsistencyEvaluator() {
   }
 
   function calculate() {
-    const baseline = parseFloat(getInput('baseline').value) || 0;
+    const coverageEnabled = (parseFloat(getInput('coverageEnabled').value) || 0) >= 1;
+    const invalidSegmentIndex = state.listSegments.findIndex(segment =>
+      (segment.start === null) !== (segment.end === null) ||
+      (segment.start !== null && segment.end !== null && segment.end <= segment.start)
+    );
+    state.listSegments.forEach((segment, index) => {
+      const invalid = index === invalidSegmentIndex;
+      const row = getInput('lpContainer')?.querySelector(`.consistency-segment-row:nth-child(${index + 1})`);
+      const error = row?.querySelector('.consistency-segment-range-error');
+      error?.classList.toggle('hidden', !invalid);
+      row?.querySelectorAll('.consistency-segment-start, .consistency-segment-end')
+        .forEach(input => input.setAttribute('aria-invalid', invalid ? 'true' : 'false'));
+    });
+    const segmentRangeValid = invalidSegmentIndex === -1;
+    const baselineInput = getInput('baseline');
+    const baselineHint = getInput('baselineHint');
+    const baselineText = baselineInput.value.trim();
+    const rangeMatch = baselineText.match(/^(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)$/);
+    const singleMatch = baselineText.match(/^\d+(?:\.\d+)?$/);
+    let baseline = 0;
+    let baselineValid = false;
+    let baselineError = '';
+    if (rangeMatch) {
+      const start = Number(rangeMatch[1]);
+      const end = Number(rangeMatch[2]);
+      if (start >= 0 && start < end && end <= 100) {
+        baseline = coverageEnabled ? end - start : end;
+        baselineValid = true;
+      } else {
+        baselineError = 'Range must satisfy 0 ≤ start < end ≤ 100.';
+      }
+    } else if (singleMatch) {
+      baseline = Number(baselineText);
+      baselineValid = baseline <= 100;
+      if (!baselineValid) baselineError = 'Baseline must be between 0 and 100.';
+    } else {
+      baselineError = 'Enter a progress value (for example 100) or a run range (for example 40 - 100).';
+    }
+    baselineInput.setAttribute('aria-invalid', baselineValid ? 'false' : 'true');
+    if (baselineHint) {
+      baselineHint.textContent = baselineValid ?
+        `Effective baseline for Gate A: ${baseline.toFixed(1)}%${rangeMatch && coverageEnabled ? ' after the partial-coverage discount' : ''}.` :
+        baselineError;
+      baselineHint.classList.toggle('consistency-input-error', !baselineValid);
+    }
     const margin = parseFloat(getInput('margin').value) || 0;
     const wholePrecision = Math.max(0.001, parseFloat(getInput('levelPrecision').value) || 100);
     const referencePrecision = Math.max(0.001, parseFloat(getInput('referencePrecision').value) || 320);
@@ -479,7 +556,6 @@ function initConsistencyEvaluator() {
     const decay = Math.min(1, Math.max(0, parseFloat(getInput('decay').value)));
     const preWeight = parseFloat(getInput('preWeight').value) || 0;
     const postWeight = parseFloat(getInput('postWeight').value) || 0;
-    const coverageEnabled = (parseFloat(getInput('coverageEnabled').value) || 0) >= 1;
     const k = Math.max(0.5, Math.min(5, parseFloat(getInput('exp').value) || 1));
     const fillerThreshold = Math.max(0, Math.min(100, parseFloat(getInput('fillerThreshold')?.value) || 0));
     const fillerLimitPercent = Math.max(0, Math.min(100, parseFloat(getInput('fillerLimitPercent')?.value) || 0));
@@ -500,12 +576,40 @@ function initConsistencyEvaluator() {
     });
     const equivalentPrecision = precisionFactor * referencePrecision;
 
+    function getSegmentChallengeFactor(start, end) {
+      const runLength = end - start;
+      if (runLength <= 0) return 1;
+
+      let logFactor = 0;
+      let zeroDifficultyOverlap = false;
+      state.listSegments.forEach(segment => {
+        if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) ||
+          segment.end <= segment.start) {
+          return;
+        }
+        const overlap = Math.max(0,
+          Math.min(end, segment.end) - Math.max(start, segment.start));
+        if (overlap <= 0) return;
+        const runExposure = overlap / runLength;
+        if (segment.difficulty !== null) {
+          if (segment.difficulty <= 0) zeroDifficultyOverlap = true;
+          else logFactor += runExposure * Math.log(segment.difficulty / 100);
+        }
+        if (segment.precision !== null) {
+          logFactor += runExposure * Math.log(segment.precision / wholePrecision);
+        }
+      });
+      return zeroDifficultyOverlap ? 0 : Math.exp(logFactor);
+    }
+
     const withOrder = state.runs.map((run, origIndex) => {
       const noclipSeverity = getNoclipSeverity(run);
+      const end = Math.min(100, run.end);
       return {
         start: run.start,
-        end: Math.min(100, run.end),
+        end,
         origIndex,
+        segmentChallengeFactor: getSegmentChallengeFactor(run.start, end),
         noclip: run.noclip,
         deathPercents: run.deathPercents,
         accuracy: run.accuracy,
@@ -520,7 +624,9 @@ function initConsistencyEvaluator() {
           1
       };
     });
-    const required = baseline * Math.pow(1 + margin / 100, k) * combinedLevelFactor * precisionFactor;
+    const required = baselineValid && segmentRangeValid ?
+      baseline * Math.pow(1 + margin / 100, k) * combinedLevelFactor * precisionFactor :
+      Infinity;
     const submittedPeak = withOrder.reduce((peak, run) => Math.max(peak, run.end), 0);
 
     function evaluateRunSet(runSet, trimEdgeRuns) {
@@ -537,8 +643,11 @@ function initConsistencyEvaluator() {
           Math.exp(-nerveRate * reachedSeconds * postPeakQualificationNerve) :
           1;
         const qualificationNerveFactor = run.nerveFactor * postPeakQualificationFactor;
-        const nerveAdjustedEnd = Math.min(100, run.end / qualificationNerveFactor * run.noclipFactor);
-        const fillerGap = Math.max(0, M - run.end);
+        const nerveAdjustedEnd = Math.min(
+          100,
+          run.end / qualificationNerveFactor * run.noclipFactor * run.segmentChallengeFactor
+        );
+        const fillerGap = Math.max(0, M - nerveAdjustedEnd);
         return {
           ...run,
           rank,
@@ -628,7 +737,8 @@ function initConsistencyEvaluator() {
               run.coveragePairNoclipFactor / run.noclipFactor :
             run.coverage;
           const scoreCoverage = Math.max(run.coverage, pairedCoverage);
-          const peakContribution = (coverageEnabled ? M * scoreCoverage : M) * runFactor;
+          const peakContribution = (coverageEnabled ? M * scoreCoverage : M) *
+            runFactor * run.segmentChallengeFactor;
           return {
             ...run,
             w: peakContribution,
@@ -643,11 +753,14 @@ function initConsistencyEvaluator() {
           return { ...run, w: 0, contribution: 0, isAutoFailFiller: false };
         }
         const orderFactor = run.order === 'pre' ? preWeight : postWeight;
-        const difficultyFactor = Math.pow(run.end / M, k);
+        const progressRatio = M > 0 ?
+          Math.min(1, run.end * run.segmentChallengeFactor / M) :
+          0;
+        const difficultyFactor = Math.pow(progressRatio, k);
         const baseContribution = weight * difficultyFactor *
           Math.pow(decay, Math.max(0, run.scoringRank - 2)) *
           orderFactor * run.coverage * runFactor;
-        const runRatio = M > 0 ? run.end / M : 0;
+        const runRatio = M > 0 ? Math.min(1, run.nerveAdjustedEnd / M) : 0;
         const contribution = runRatio <= 0.59 ? 0 :
           runRatio < 0.69 ? baseContribution * 0.3 : baseContribution;
         const qualifyingRatio = M > 0 ? run.nerveAdjustedEnd / M : 0;
@@ -718,7 +831,7 @@ function initConsistencyEvaluator() {
     let evaluationsChecked = 0;
     const maxSubsetEvaluations = 1100000;
 
-    if (withOrder.length >= 2) {
+    if (baselineValid && segmentRangeValid && withOrder.length >= 2) {
       let passingEvaluation = null;
       let passingIndexes = null;
       for (let windowSize = withOrder.length; windowSize >= 2 && !passingEvaluation; windowSize -= 1) {
@@ -806,7 +919,11 @@ function initConsistencyEvaluator() {
       const postPeakFactor = nerveEnabled && order === 'post' ?
         Math.exp(-nerveRate * reachedSeconds * postPeakQualificationNerve) :
         1;
-      const nerveAdjustedEnd = Math.min(100, run.end / (run.nerveFactor * postPeakFactor) * run.noclipFactor);
+      const nerveAdjustedEnd = Math.min(
+        100,
+        run.end / (run.nerveFactor * postPeakFactor) *
+          run.noclipFactor * run.segmentChallengeFactor
+      );
       return {
         ...run,
         rank: idx + 1,
@@ -868,7 +985,10 @@ function initConsistencyEvaluator() {
     }
     const gateADetail = getInput('gateADetail');
     if (gateADetail) {
-      gateADetail.textContent = `${score.toFixed(1)}% vs required ${required.toFixed(1)}% (equivalent precision ${equivalentPrecision.toFixed(1)} / ${referencePrecision.toFixed(1)} = ×${precisionFactor.toFixed(2)})`;
+      gateADetail.textContent = baselineValid && segmentRangeValid ?
+        `${score.toFixed(1)}% vs required ${required.toFixed(1)}% (equivalent precision ${equivalentPrecision.toFixed(1)} / ${referencePrecision.toFixed(1)} = ×${precisionFactor.toFixed(2)})` :
+        !baselineValid ? `Invalid baseline: ${baselineError}` :
+          `Segment ${invalidSegmentIndex + 1} needs both positions, with End greater than Start.`;
     }
 
     const gateBStatus = getInput('gateBStatus');
@@ -919,7 +1039,9 @@ function initConsistencyEvaluator() {
         if (!row.isPeak && row.fillerOk && row.fillerGap > 0) {
           runLabel += ` (filler ${row.fillerGap.toFixed(1)}%)`;
         }
-        if (!row.isPeak && row.nerveAdjustedEnd > row.end && !row.noclip) {
+        if (row.segmentChallengeFactor !== 1) {
+          runLabel += ` (segment challenge ×${row.segmentChallengeFactor.toFixed(2)}; adjusted progress ${row.nerveAdjustedEnd.toFixed(1)}%)`;
+        } else if (!row.isPeak && row.nerveAdjustedEnd > row.end && !row.noclip) {
           runLabel += ` (nerve-adjusted ${row.nerveAdjustedEnd.toFixed(1)}%)`;
         }
         if (row.noclip && row.noclipFactor < 1) {
@@ -978,7 +1100,13 @@ function initConsistencyEvaluator() {
   });
 
   document.getElementById('addLp')?.addEventListener('click', () => {
-    state.listSegments.push({ coverage: 75, difficulty: 75, precision: null });
+    state.listSegments.push({
+      coverage: 75,
+      difficulty: 75,
+      precision: null,
+      start: null,
+      end: null
+    });
     renderListSegments();
     calculate();
   });
