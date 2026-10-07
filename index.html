@@ -272,7 +272,7 @@
         <div class="consistency-section">
           <div class="consistency-panel">
             <h4>Level Segment Modifiers</h4>
-            <div class="hint" style="margin-bottom: 12px;">Each entry can modify relative difficulty and/or set precision (σ/s) for that section. Set both Start % and End % (End must be greater than Start) to apply its difficulty and precision to overlapping runs; overlap is weighted by how much of each run falls inside the section. Sections may overlap. Modifier Weight % preserves the whole-level difficulty and precision calculation. Leave both positions blank to skip run-specific adjustments.</div>
+            <div class="hint" style="margin-bottom: 12px;">Each entry can modify relative difficulty and/or set precision (σ/s) for that section. Sections are independent and may overlap. Leave Difficulty blank for no difficulty modifier, or Precision blank to use the whole-level precision.</div>
             <div id="lpContainer"></div>
             <button class="btn btn-primary" id="addLp" type="button">＋ Add segment</button>
           </div>
@@ -445,15 +445,15 @@
         <div class="consistency-note-box">
           <div><code>1.</code> Baseline accepts a single End % or a run range such as 40 - 100. When partial-coverage discounting is enabled, a range contributes End − Start as the effective baseline; otherwise it contributes End. End % is capped at 100. The calculator searches contiguous attempt windows from longest to shortest and uses the largest passing window. If multiple windows of that size pass, it prefers more qualifying runs, then the higher score. Its highest End % is the peak (M); ties use the first retained attempt. Internal attempts remain in the selected window, while attempts outside it are excluded.</div>
           <div><code>2.</code> Run nerve factor = e^(−Nerve Rate × level duration in seconds × End %/100), or 1 when time-based nerves are disabled.</div>
-          <div><code>3.</code> For qualification, a post-peak run also gets an extra nerve factor = e^(−Nerve Rate × reached seconds × Extra Post-Peak Qualification Nerve). Effective progress = min(100%, End % ÷ (run nerve factor × extra post-peak factor) × Noclip Factor × local segment challenge factor). Local segment challenge is the overlap-weighted geometric product of segment Difficulty/100 and segment Precision/whole-level Precision.</div>
-          <div><code>4.</code> A run qualifies when effective progress is at least Filler Threshold % of M. The peak run always qualifies. Two adjacent complementary runs may count together as one qualification unit when their unique start-to-end coverage reaches 95% of the highest submitted End % and exceeds either run's individual coverage. Their combined coverage is discounted by the weaker Noclip Factor; a pair still counts as only one unit, so another qualifying run is required.</div>
+          <div><code>3.</code> For qualification, a post-peak run also gets an extra nerve factor = e^(−Nerve Rate × reached seconds × Extra Post-Peak Qualification Nerve). Effective progress = min(100%, End % ÷ (run nerve factor × extra post-peak factor) × Noclip Factor). The extra factor is 1 for pre-peak and peak runs.</div>
+          <div><code>4.</code> A run qualifies when effective progress is at least Filler Threshold % of M. The peak run always qualifies. Three or more consecutive low-progress runs immediately before and/or after the peak count together as one hard-run cluster when every run overlaps the peak's covered interval; cluster members are exempt from filler and auto-fail penalties. Two adjacent complementary runs may also count together as one qualification unit when their unique start-to-end coverage reaches 95% of the highest submitted End % and exceeds either run's individual coverage. Their combined coverage is discounted by the weaker Noclip Factor; a pair still counts as only one unit.</div>
           <div><code>5.</code> Internal attempts in the selected window stay in the calculation, including low-progress fillers, unless they are part of a qualifying complementary coverage pair. Attempts outside the window do not affect the peak, score, filler, auto-fail, or post-peak nerves. Searches are bounded for very large run sets and the result says when the limit is reached.</div>
-          <div><code>6.</code> Acceptance requires at least 2 qualifying runs or coverage units, no auto-fail filler, and passing both Gate A and Gate B.</div>
+          <div><code>6.</code> Acceptance requires at least 2 qualifying runs or qualification units, no auto-fail filler, and passing both Gate A and Gate B.</div>
           <div><code>7.</code> Coverage = clamp((End − Start) / End, 0, 1), or 1 if partial-coverage discounting is disabled. Coverage affects run contributions, including the peak.</div>
           <div><code>8.</code> For a noclip run, severity = sum over entered deaths of [0.1 + 0.9 × (death %/100)²] + max(0, 99.7 − Accuracy %) × 1000. A death range uses its midpoint; each valid comma-separated position or range counts as one death. Blank accuracy adds no accuracy severity. Eclipse scales the accuracy-severity part by 0.165/0.39; Mega Hack uses 1.</div>
           <div><code>9.</code> Noclip Factor = e^(−Noclip Severity Rate × severity); the rate is clamped from 0 to 0.5. This factor reduces that run's score contribution and effective progress. With noclip disabled, the factor is 1.</div>
-          <div><code>10.</code> Peak contribution = M × peak coverage (or M without coverage discount) × peak nerve factor × peak Noclip Factor × local segment challenge factor. If the peak is part of a qualifying complementary coverage pair, use that pair's unique coverage, discounted by the weaker Noclip Factor.</div>
-          <div><code>11.</code> Each other scored run starts with Weight × (End × local segment challenge factor/M)^K × Decay^max(0, rank−2) × order factor × coverage × nerve factor × Noclip Factor. Rank is by descending End % among non-trimmed runs.</div>
+          <div><code>10.</code> Peak contribution = M × peak coverage (or M without coverage discount) × peak nerve factor × peak Noclip Factor. If the peak is part of a qualifying complementary coverage pair, use that pair's unique coverage, discounted by the weaker Noclip Factor.</div>
+          <div><code>11.</code> Each other scored run starts with Weight × (End/M)^K × Decay^max(0, rank−2) × order factor × coverage × nerve factor × Noclip Factor. Rank is by descending End % among non-trimmed runs.</div>
           <div><code>12.</code> Other-run contribution is 0 when End/M ≤ 59%, 30% of the starting contribution when 59% &lt; End/M &lt; 69%, and the full starting contribution at 69% or above. A run with nerve- and noclip-adjusted progress above 10% and at most 59% of M triggers auto-fail unless it belongs to a qualifying complementary coverage pair.</div>
           <div><code>13.</code> Order factor is Pre-Peak Multiplier for attempts before the peak, or Post-Peak Multiplier for attempts after it.</div>
           <div><code>14.</code> Excess filler = max(0, low-value scored-run count − ceil(scored-run count × allowed filler %)). Filler multiplier = Filler Penalty Decay^excess filler.</div>
@@ -772,7 +772,7 @@
   <script type="module" src="render.table.js?v=20261002"></script>
   <script type="module" src="render.main.js?v=20261002"></script>
   <script type="module" src="init.js?v=20261002"></script>
-  <script src="consistency.js?v=20261007-40"></script>
+  <script src="consistency.js?v=20261007-38"></script>
 </body>
 
 </html>

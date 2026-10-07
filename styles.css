@@ -2215,7 +2215,7 @@ tbody#rankings-body:empty::before {
 
 .consistency-segment-row {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
     align-items: end;
 }
 
@@ -2224,12 +2224,6 @@ tbody#rankings-body:empty::before {
     flex-direction: column;
     gap: 4px;
     min-width: 0;
-}
-
-.consistency-segment-range-error {
-    grid-column: 1 / -1;
-    color: var(--danger);
-    font-size: 0.8rem;
 }
 
 .consistency-run-row .consistency-input,
@@ -2580,6 +2574,11 @@ tbody#rankings-body:empty::before {
 
     .consistency-segment-row {
         grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+    }
+
+    .consistency-segment-field:last-of-type {
+        grid-column: 1;
+        grid-row: 2;
     }
 
     .consistency-segment-row .consistency-remove-btn {

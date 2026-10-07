@@ -18,7 +18,7 @@ function initConsistencyEvaluator() {
       { start: 0, end: 75, noclip: false, deathPercents: '', accuracy: '', noclipTool: 'Mega Hack' },
       { start: 0, end: 100, noclip: false, deathPercents: '', accuracy: '', noclipTool: 'Mega Hack' }
     ],
-    listSegments: [{ coverage: 75, difficulty: 75, precision: null, start: null, end: null }]
+    listSegments: [{ coverage: 75, difficulty: 75, precision: null }]
   };
 
   function getInput(id) {
@@ -53,18 +53,12 @@ function initConsistencyEvaluator() {
             const coverage = Number(segment.coverage);
             const difficulty = Number(segment.difficulty);
             const precision = Number(segment.precision);
-            const start = Number(segment.start);
-            const end = Number(segment.end);
             return {
               coverage: Number.isFinite(coverage) ? coverage : 75,
               difficulty: segment.difficulty === '' || segment.difficulty == null ? null :
                 (Number.isFinite(difficulty) ? difficulty : null),
               precision: segment.precision === '' || segment.precision == null ? null :
-                (Number.isFinite(precision) ? precision : null),
-              start: segment.start === '' || segment.start == null ? null :
-                (Number.isFinite(start) ? Math.max(0, Math.min(100, start)) : null),
-              end: segment.end === '' || segment.end == null ? null :
-                (Number.isFinite(end) ? Math.max(0, Math.min(100, end)) : null)
+                (Number.isFinite(precision) ? precision : null)
             };
           });
       }
@@ -197,18 +191,12 @@ function initConsistencyEvaluator() {
           const coverage = Number(segment.coverage);
           const difficulty = Number(segment.difficulty);
           const precision = Number(segment.precision);
-          const start = Number(segment.start);
-          const end = Number(segment.end);
           return {
             coverage: Number.isFinite(coverage) ? Math.max(0, Math.min(100, coverage)) : 75,
             difficulty: segment.difficulty === '' || segment.difficulty == null ? null :
               (Number.isFinite(difficulty) ? Math.max(0, difficulty) : null),
             precision: segment.precision === '' || segment.precision == null ? null :
-              (Number.isFinite(precision) ? Math.max(0.001, precision) : null),
-            start: segment.start === '' || segment.start == null ? null :
-              (Number.isFinite(start) ? Math.max(0, Math.min(100, start)) : null),
-            end: segment.end === '' || segment.end == null ? null :
-              (Number.isFinite(end) ? Math.max(0, Math.min(100, end)) : null)
+              (Number.isFinite(precision) ? Math.max(0.001, precision) : null)
           };
         });
     }
@@ -416,15 +404,7 @@ function initConsistencyEvaluator() {
       row.className = 'consistency-segment-row';
       row.innerHTML = `
         <label class="consistency-segment-field">
-          <span class="consistency-segment-label">Start %</span>
-          <input type="number" value="${segment.start ?? ''}" min="0" max="100" step="1" placeholder="Optional" aria-label="Segment ${idx + 1} start percentage" data-idx="${idx}" class="consistency-input consistency-segment-start">
-        </label>
-        <label class="consistency-segment-field">
-          <span class="consistency-segment-label">End %</span>
-          <input type="number" value="${segment.end ?? ''}" min="0" max="100" step="1" placeholder="Optional" aria-label="Segment ${idx + 1} end percentage" data-idx="${idx}" class="consistency-input consistency-segment-end">
-        </label>
-        <label class="consistency-segment-field">
-          <span class="consistency-segment-label">Modifier Weight %</span>
+          <span class="consistency-segment-label">Level %</span>
           <input type="number" value="${segment.coverage}" min="0" max="100" step="1" data-idx="${idx}" class="consistency-input consistency-segment-cov">
         </label>
         <label class="consistency-segment-field">
@@ -436,21 +416,8 @@ function initConsistencyEvaluator() {
           <input type="number" value="${segment.precision ?? ''}" min="0.001" step="any" placeholder="Use level" data-idx="${idx}" class="consistency-input consistency-segment-precision">
         </label>
         <button class="consistency-remove-btn" data-idx="${idx}" type="button">×</button>
-        <span class="consistency-segment-range-error hidden" data-idx="${idx}">Enter both positions and make End greater than Start.</span>
       `;
       container.appendChild(row);
-    });
-
-    container.querySelectorAll('.consistency-segment-start, .consistency-segment-end').forEach(el => {
-      el.addEventListener('input', e => {
-        const i = parseInt(e.target.dataset.idx, 10);
-        const key = e.target.classList.contains('consistency-segment-start') ? 'start' : 'end';
-        const value = parseFloat(e.target.value);
-        state.listSegments[i][key] = e.target.value.trim() === '' || !Number.isFinite(value) ?
-          null :
-          Math.max(0, Math.min(100, value));
-        calculate();
-      });
     });
 
     container.querySelectorAll('.consistency-segment-cov').forEach(el => {
@@ -495,19 +462,6 @@ function initConsistencyEvaluator() {
 
   function calculate() {
     const coverageEnabled = (parseFloat(getInput('coverageEnabled').value) || 0) >= 1;
-    const invalidSegmentIndex = state.listSegments.findIndex(segment =>
-      (segment.start === null) !== (segment.end === null) ||
-      (segment.start !== null && segment.end !== null && segment.end <= segment.start)
-    );
-    state.listSegments.forEach((segment, index) => {
-      const invalid = index === invalidSegmentIndex;
-      const row = getInput('lpContainer')?.querySelector(`.consistency-segment-row:nth-child(${index + 1})`);
-      const error = row?.querySelector('.consistency-segment-range-error');
-      error?.classList.toggle('hidden', !invalid);
-      row?.querySelectorAll('.consistency-segment-start, .consistency-segment-end')
-        .forEach(input => input.setAttribute('aria-invalid', invalid ? 'true' : 'false'));
-    });
-    const segmentRangeValid = invalidSegmentIndex === -1;
     const baselineInput = getInput('baseline');
     const baselineHint = getInput('baselineHint');
     const baselineText = baselineInput.value.trim();
@@ -576,40 +530,12 @@ function initConsistencyEvaluator() {
     });
     const equivalentPrecision = precisionFactor * referencePrecision;
 
-    function getSegmentChallengeFactor(start, end) {
-      const runLength = end - start;
-      if (runLength <= 0) return 1;
-
-      let logFactor = 0;
-      let zeroDifficultyOverlap = false;
-      state.listSegments.forEach(segment => {
-        if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) ||
-          segment.end <= segment.start) {
-          return;
-        }
-        const overlap = Math.max(0,
-          Math.min(end, segment.end) - Math.max(start, segment.start));
-        if (overlap <= 0) return;
-        const runExposure = overlap / runLength;
-        if (segment.difficulty !== null) {
-          if (segment.difficulty <= 0) zeroDifficultyOverlap = true;
-          else logFactor += runExposure * Math.log(segment.difficulty / 100);
-        }
-        if (segment.precision !== null) {
-          logFactor += runExposure * Math.log(segment.precision / wholePrecision);
-        }
-      });
-      return zeroDifficultyOverlap ? 0 : Math.exp(logFactor);
-    }
-
     const withOrder = state.runs.map((run, origIndex) => {
       const noclipSeverity = getNoclipSeverity(run);
-      const end = Math.min(100, run.end);
       return {
         start: run.start,
-        end,
+        end: Math.min(100, run.end),
         origIndex,
-        segmentChallengeFactor: getSegmentChallengeFactor(run.start, end),
         noclip: run.noclip,
         deathPercents: run.deathPercents,
         accuracy: run.accuracy,
@@ -624,7 +550,7 @@ function initConsistencyEvaluator() {
           1
       };
     });
-    const required = baselineValid && segmentRangeValid ?
+    const required = baselineValid ?
       baseline * Math.pow(1 + margin / 100, k) * combinedLevelFactor * precisionFactor :
       Infinity;
     const submittedPeak = withOrder.reduce((peak, run) => Math.max(peak, run.end), 0);
@@ -643,11 +569,8 @@ function initConsistencyEvaluator() {
           Math.exp(-nerveRate * reachedSeconds * postPeakQualificationNerve) :
           1;
         const qualificationNerveFactor = run.nerveFactor * postPeakQualificationFactor;
-        const nerveAdjustedEnd = Math.min(
-          100,
-          run.end / qualificationNerveFactor * run.noclipFactor * run.segmentChallengeFactor
-        );
-        const fillerGap = Math.max(0, M - nerveAdjustedEnd);
+        const nerveAdjustedEnd = Math.min(100, run.end / qualificationNerveFactor * run.noclipFactor);
+        const fillerGap = Math.max(0, M - run.end);
         return {
           ...run,
           rank,
@@ -714,9 +637,43 @@ function initConsistencyEvaluator() {
       const pairedRunIndexes = new Set(
         breakdown.filter(run => run.coveragePairId).map(run => run.origIndex)
       );
+      const peakRun = breakdown.find(run => run.isPeak);
+      const peakChronologicalIndex = chronologicalRuns.findIndex(run => run.isPeak);
+      const overlapsPeakCoverage = run => {
+        if (!peakRun) return false;
+        const peakStart = Math.max(0, Math.min(100, peakRun.start));
+        const peakEnd = Math.max(0, Math.min(100, peakRun.end));
+        const runStart = Math.max(0, Math.min(100, run.start));
+        const runEnd = Math.max(0, Math.min(100, run.end));
+        return Math.min(peakEnd, runEnd) > Math.max(peakStart, runStart);
+      };
+      const hardRunCluster = [];
+      for (let i = peakChronologicalIndex - 1; i >= 0; i -= 1) {
+        const run = chronologicalRuns[i];
+        if (!run.isLowValueFiller || !overlapsPeakCoverage(run)) break;
+        hardRunCluster.unshift(run);
+      }
+      for (let i = peakChronologicalIndex + 1; i < chronologicalRuns.length; i += 1) {
+        const run = chronologicalRuns[i];
+        if (!run.isLowValueFiller || !overlapsPeakCoverage(run)) break;
+        hardRunCluster.push(run);
+      }
+      const hardRunClusterCount = hardRunCluster.length >= 3 ? 1 : 0;
+      if (hardRunClusterCount) {
+        hardRunCluster.forEach(run => {
+          run.hardRunClusterId = `hard-run-${peakRun.origIndex}`;
+          run.countsAsQualifying = true;
+          run.isLowValueFiller = false;
+        });
+      }
+      const hardRunClusterIndexes = new Set(
+        hardRunClusterCount ? hardRunCluster.map(run => run.origIndex) : []
+      );
       const qualifyingCount = breakdown.filter(run =>
-        run.countsAsQualifying && !pairedRunIndexes.has(run.origIndex)
-      ).length + coveragePairs.length;
+        run.countsAsQualifying &&
+          !pairedRunIndexes.has(run.origIndex) &&
+          !hardRunClusterIndexes.has(run.origIndex)
+      ).length + coveragePairs.length + hardRunClusterCount;
       const qualifyingIndexes = breakdown
         .filter(run => run.countsAsQualifying)
         .map(run => run.origIndex);
@@ -737,8 +694,7 @@ function initConsistencyEvaluator() {
               run.coveragePairNoclipFactor / run.noclipFactor :
             run.coverage;
           const scoreCoverage = Math.max(run.coverage, pairedCoverage);
-          const peakContribution = (coverageEnabled ? M * scoreCoverage : M) *
-            runFactor * run.segmentChallengeFactor;
+          const peakContribution = (coverageEnabled ? M * scoreCoverage : M) * runFactor;
           return {
             ...run,
             w: peakContribution,
@@ -753,14 +709,11 @@ function initConsistencyEvaluator() {
           return { ...run, w: 0, contribution: 0, isAutoFailFiller: false };
         }
         const orderFactor = run.order === 'pre' ? preWeight : postWeight;
-        const progressRatio = M > 0 ?
-          Math.min(1, run.end * run.segmentChallengeFactor / M) :
-          0;
-        const difficultyFactor = Math.pow(progressRatio, k);
+        const difficultyFactor = Math.pow(run.end / M, k);
         const baseContribution = weight * difficultyFactor *
           Math.pow(decay, Math.max(0, run.scoringRank - 2)) *
           orderFactor * run.coverage * runFactor;
-        const runRatio = M > 0 ? Math.min(1, run.nerveAdjustedEnd / M) : 0;
+        const runRatio = M > 0 ? run.end / M : 0;
         const contribution = runRatio <= 0.59 ? 0 :
           runRatio < 0.69 ? baseContribution * 0.3 : baseContribution;
         const qualifyingRatio = M > 0 ? run.nerveAdjustedEnd / M : 0;
@@ -769,6 +722,7 @@ function initConsistencyEvaluator() {
           w: contribution,
           contribution,
           isAutoFailFiller: !run.coveragePairId &&
+            !run.hardRunClusterId &&
             qualifyingRatio > 0.10 && qualifyingRatio <= 0.59
         };
       });
@@ -805,6 +759,7 @@ function initConsistencyEvaluator() {
         breakdown,
         qualifyingCount,
         coveragePairCount: coveragePairs.length,
+        hardRunClusterCount,
         trimmedRunIndexes,
         scoredRuns,
         contributions,
@@ -831,7 +786,7 @@ function initConsistencyEvaluator() {
     let evaluationsChecked = 0;
     const maxSubsetEvaluations = 1100000;
 
-    if (baselineValid && segmentRangeValid && withOrder.length >= 2) {
+    if (baselineValid && withOrder.length >= 2) {
       let passingEvaluation = null;
       let passingIndexes = null;
       for (let windowSize = withOrder.length; windowSize >= 2 && !passingEvaluation; windowSize -= 1) {
@@ -882,6 +837,7 @@ function initConsistencyEvaluator() {
       M,
       qualifyingCount: n,
       coveragePairCount,
+      hardRunClusterCount,
       trimmedRunIndexes: edgeTrimmedIndexes,
       scoredRuns,
       hasAutoFailFiller,
@@ -919,11 +875,7 @@ function initConsistencyEvaluator() {
       const postPeakFactor = nerveEnabled && order === 'post' ?
         Math.exp(-nerveRate * reachedSeconds * postPeakQualificationNerve) :
         1;
-      const nerveAdjustedEnd = Math.min(
-        100,
-        run.end / (run.nerveFactor * postPeakFactor) *
-          run.noclipFactor * run.segmentChallengeFactor
-      );
+      const nerveAdjustedEnd = Math.min(100, run.end / (run.nerveFactor * postPeakFactor) * run.noclipFactor);
       return {
         ...run,
         rank: idx + 1,
@@ -967,15 +919,19 @@ function initConsistencyEvaluator() {
       const coveragePairNote = coveragePairCount > 0 ?
         ` ${coveragePairCount} adjacent complementary ${coveragePairCount === 1 ? 'run pair counts' : 'run pairs count'} as ${coveragePairCount === 1 ? 'one' : 'one each'} combined qualification unit based on unique level coverage.` :
         '';
+      const hardRunClusterNote = hardRunClusterCount > 0 ?
+        ` ${hardRunClusterCount} cluster of at least 3 consecutive low-progress runs overlapping the peak counts as one qualification unit; its runs are exempt from filler and auto-fail penalties.` :
+        '';
+      const hasGroupedQualificationUnits = coveragePairCount > 0 || hardRunClusterCount > 0;
       const searchNote = subsetSearchTruncated ?
         (subsetSearchApplied ?
           ` Subset search reached its ${maxSubsetEvaluations.toLocaleString()}-candidate limit; this is the best passing set found so far.` :
           ` Subset search reached its ${maxSubsetEvaluations.toLocaleString()}-candidate limit without finding a passing subset; showing the full-set result, which may not be optimal.`) :
         '';
       const qualificationSummary = n < 2 ?
-        `Only ${n} ${coveragePairCount ? 'qualification unit' : 'run'} qualifies — treated as a single personal best, not a consistency claim.` :
-        `${n} ${coveragePairCount ? 'qualification units' : 'runs qualify'}. Score ${score.toFixed(1)}%.`;
-      verdictSub.textContent = qualificationSummary + trimmedRunNote + searchNote + fillerNote + coveragePairNote + postPeakNerveNote;
+        `Only ${n} ${hasGroupedQualificationUnits ? 'qualification unit' : 'run'} qualifies — treated as a single personal best, not a consistency claim.` :
+        `${n} ${hasGroupedQualificationUnits ? 'qualification units' : 'runs qualify'}. Score ${score.toFixed(1)}%.`;
+      verdictSub.textContent = qualificationSummary + trimmedRunNote + searchNote + fillerNote + coveragePairNote + hardRunClusterNote + postPeakNerveNote;
     }
 
     const gateAStatus = getInput('gateAStatus');
@@ -985,10 +941,9 @@ function initConsistencyEvaluator() {
     }
     const gateADetail = getInput('gateADetail');
     if (gateADetail) {
-      gateADetail.textContent = baselineValid && segmentRangeValid ?
+      gateADetail.textContent = baselineValid ?
         `${score.toFixed(1)}% vs required ${required.toFixed(1)}% (equivalent precision ${equivalentPrecision.toFixed(1)} / ${referencePrecision.toFixed(1)} = ×${precisionFactor.toFixed(2)})` :
-        !baselineValid ? `Invalid baseline: ${baselineError}` :
-          `Segment ${invalidSegmentIndex + 1} needs both positions, with End greater than Start.`;
+        `Invalid baseline: ${baselineError}`;
     }
 
     const gateBStatus = getInput('gateBStatus');
@@ -1011,7 +966,7 @@ function initConsistencyEvaluator() {
     const consistencyDetail = getInput('consistencyDetail');
     if (consistencyDetail) {
       consistencyDetail.textContent =
-        `${n} qualifying ${coveragePairCount ? `unit${n === 1 ? '' : 's'}` : n === 1 ? 'run' : 'runs'}; ${trimmedRunCount} ${subsetSearchApplied ? `attempt${trimmedRunCount === 1 ? '' : 's'} trimmed from passing set` : `edge run${trimmedRunCount === 1 ? '' : 's'} trimmed`}`;
+        `${n} qualifying ${coveragePairCount || hardRunClusterCount ? `unit${n === 1 ? '' : 's'}` : n === 1 ? 'run' : 'runs'}; ${trimmedRunCount} ${subsetSearchApplied ? `attempt${trimmedRunCount === 1 ? '' : 's'} trimmed from passing set` : `edge run${trimmedRunCount === 1 ? '' : 's'} trimmed`}`;
     }
 
     const fillerStatus = getInput('fillerStatus');
@@ -1039,9 +994,7 @@ function initConsistencyEvaluator() {
         if (!row.isPeak && row.fillerOk && row.fillerGap > 0) {
           runLabel += ` (filler ${row.fillerGap.toFixed(1)}%)`;
         }
-        if (row.segmentChallengeFactor !== 1) {
-          runLabel += ` (segment challenge ×${row.segmentChallengeFactor.toFixed(2)}; adjusted progress ${row.nerveAdjustedEnd.toFixed(1)}%)`;
-        } else if (!row.isPeak && row.nerveAdjustedEnd > row.end && !row.noclip) {
+        if (!row.isPeak && row.nerveAdjustedEnd > row.end && !row.noclip) {
           runLabel += ` (nerve-adjusted ${row.nerveAdjustedEnd.toFixed(1)}%)`;
         }
         if (row.noclip && row.noclipFactor < 1) {
@@ -1049,6 +1002,9 @@ function initConsistencyEvaluator() {
         }
         if (row.isLowValueFiller) {
           runLabel += ' (low-value filler)';
+        }
+        if (row.hardRunClusterId) {
+          runLabel += ' (hard-run cluster unit)';
         }
         if (row.noclip) {
           const deathCountLabel = formatDeathCount(row.deathPercents);
@@ -1100,13 +1056,7 @@ function initConsistencyEvaluator() {
   });
 
   document.getElementById('addLp')?.addEventListener('click', () => {
-    state.listSegments.push({
-      coverage: 75,
-      difficulty: 75,
-      precision: null,
-      start: null,
-      end: null
-    });
+    state.listSegments.push({ coverage: 75, difficulty: 75, precision: null });
     renderListSegments();
     calculate();
   });
