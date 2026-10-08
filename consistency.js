@@ -645,7 +645,9 @@ function initConsistencyEvaluator() {
         const peakEnd = Math.max(0, Math.min(100, peakRun.end));
         const runStart = Math.max(0, Math.min(100, run.start));
         const runEnd = Math.max(0, Math.min(100, run.end));
-        return Math.min(peakEnd, runEnd) > Math.max(peakStart, runStart);
+        const peakCoverage = peakEnd - peakStart;
+        const overlap = Math.max(0, Math.min(peakEnd, runEnd) - Math.max(peakStart, runStart));
+        return peakCoverage > 0 && overlap / peakCoverage >= 0.5;
       };
       const hardRunCluster = [];
       for (let i = peakChronologicalIndex - 1; i >= 0; i -= 1) {
@@ -779,6 +781,7 @@ function initConsistencyEvaluator() {
     }
 
     const legacyEvaluation = evaluateRunSet(withOrder, true);
+    const overallPeakOrigIndex = withOrder.find(run => run.end === submittedPeak)?.origIndex ?? -1;
     let evaluation = legacyEvaluation;
     let selectedIndexes = new Set(withOrder.map(run => run.origIndex));
     let subsetSearchApplied = false;
@@ -793,6 +796,7 @@ function initConsistencyEvaluator() {
         let bestWindowEvaluation = null;
         let bestWindowIndexes = null;
         for (let start = 0; start <= withOrder.length - windowSize; start += 1) {
+          if (overallPeakOrigIndex < start || overallPeakOrigIndex >= start + windowSize) continue;
           if (evaluationsChecked >= maxSubsetEvaluations) break;
           const candidateRuns = withOrder.slice(start, start + windowSize);
           evaluationsChecked += 1;
@@ -819,7 +823,10 @@ function initConsistencyEvaluator() {
       }
 
       if (passingEvaluation) {
-        evaluation = passingEvaluation;
+        evaluation = evaluateRunSet(
+          withOrder.filter(run => passingIndexes.has(run.origIndex)),
+          true
+        );
         selectedIndexes = passingIndexes;
         subsetSearchApplied = selectedIndexes.size < withOrder.length;
         subsetSearchTruncated = evaluationsChecked >= maxSubsetEvaluations;
@@ -920,7 +927,7 @@ function initConsistencyEvaluator() {
         ` ${coveragePairCount} adjacent complementary ${coveragePairCount === 1 ? 'run pair counts' : 'run pairs count'} as ${coveragePairCount === 1 ? 'one' : 'one each'} combined qualification unit based on unique level coverage.` :
         '';
       const hardRunClusterNote = hardRunClusterCount > 0 ?
-        ` ${hardRunClusterCount} cluster of at least 3 consecutive low-progress runs overlapping the peak counts as one qualification unit; its runs are exempt from filler and auto-fail penalties.` :
+        ` ${hardRunClusterCount} cluster of at least 3 consecutive low-progress runs, each overlapping at least 50% of the peak interval, counts as one qualification unit; its runs are exempt from filler and auto-fail penalties.` :
         '';
       const hasGroupedQualificationUnits = coveragePairCount > 0 || hardRunClusterCount > 0;
       const searchNote = subsetSearchTruncated ?
