@@ -451,7 +451,7 @@ function initializeUI() {
   const modalNewFieldName = document.getElementById('modal-new-field-name');
   if (modalNewFieldName) {
     modalNewFieldName.addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         addModalField();
       }
@@ -460,9 +460,6 @@ function initializeUI() {
 
   const modalOverlay = document.getElementById('level-modal');
   if (modalOverlay) {
-    modalOverlay.addEventListener('click', e => {
-      if (e.target === modalOverlay) closeModal();
-    });
     modalOverlay.addEventListener('keydown', e => {
       if (e.key === 'Escape') closeModal();
       if (e.key === 'Enter' && e.target.id === 'modal-new-field-name') return;
